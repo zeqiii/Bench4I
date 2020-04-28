@@ -6,6 +6,7 @@
 #include<fcntl.h>
 #include <unistd.h>
 #include <math.h>
+#include "ebench.h"
 
 //// section of functional functions
 
@@ -49,6 +50,16 @@ int ncmp(unsigned char* a, unsigned char* b, unsigned int n) {
             return 1;
     }
     return 0;
+}
+
+// implicit dataflow pattern 1
+int implicit_dataflow1(unsigned char* input, unsigned int len) {
+    int ret, i;
+    ret = 0;
+    for (i = 0; i < len; i++) {
+        if (input[i] == @KEY_BYTE@)
+            ret = ret + 1
+    return ret;
 }
 
 //// section of functional functions

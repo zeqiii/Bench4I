@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import os, sys, random, string
 import numpy as np
-
+import argparse
 
 TYPE_UNSIGNED_CHAR = "unsigned char"
 TYPE_UNSIGNED_CHAR_P = "unsigned char*"
@@ -17,6 +17,7 @@ FUN_READ_UNSIGNED_INT16 = "read_unsigned_int16"
 
 testcase_dir = "testcases"
 
+# one byte per integer, n bytes hex string corresponds to n integers array
 def to_intarray(hex_str):
     arr = []
     ch = ['a', 'b', 'c', 'd', 'e', 'f']
@@ -41,177 +42,6 @@ def to_intarray(hex_str):
         v = v + v2
         arr.append(v)
     return arr
-
-def pp(res):
-    content = []
-    for i in range(0, len(res)):
-        if res[i] > 0:
-            content.append(res[i])
-    return content
-
-def break_int_internal(value, result, res, p):
-    if value <= 0:
-        content = pp(res)
-        result.append(content)
-        return
-    for i in range(1, value+1):
-        res[p] = i
-        p = p + 1
-        break_int_internal(value-i, result, res, p)
-        p = p - 1
-        for j in range(p+1, len(res)):
-            res[j] = 0
-# 分解整数
-def break_int(value):
-    result = []
-    result2 = []
-    res = [0 for _ in range(256)]
-    p = 0
-    break_int_internal(value, result, res, p)
-    for one in result:
-        one.sort()
-        if one not in result2:
-            result2.append(one)
-    return result2
-
-
-# [[(start_index1, len1), (start_index2, len2), ...], [(start_indexN, lenN), ,...], ...]
-def gen_var_range(input_size, tainted_size):
-    num_series = break_int(tainted_size)
-    results = []
-    white_list = [1, 4, 8, 16, 32, 64]
-
-    for series in num_series:
-        remained_space = input_size
-        remained_length = tainted_size
-        current_p = 0
-        tainted_bytes = []
-        ok = True
-        for one in series:
-            if one not in white_list:
-                ok = False
-                break
-            random_space = remained_space - remained_length
-            start = current_p + int(random.random() * random_space)
-            tainted_bytes.append((start, one))
-            current_p = start + one
-            remained_length = remained_length - one
-            remained_space = input_size - current_p
-        if ok:
-            results.append(tainted_bytes)
-
-    return results
-
-    
-# (op1, ==, op2, range)  range=1
-# (op1, <, op2, range)   range=0~op2, op1<op2
-# (op1, >, op2, range)   range=op2~int_max, op1>op2
-# (op1, &&, op2, op3, range) which is (op1>op2 && op1<op3)  range=op2~op3
-# (op1, strncmp, op2, n, range) which is (strncmp(op1, op2, n) == 0) range=1
-# (op1, memcmp, op2, n, range) which is (memcmp(op1, op2, n) == 0) range=1
-def gen_conditions(var_maps):
-    condition_maps = {}
-    extra_vars = {}  # 存放一些常量定义
-    i = 0
-    j = 0
-    for key in var_maps.keys():
-        i = i + 1
-        content = var_maps[key]
-        parts = content.split("@=")[-1].strip("(").strip(")").split(",")
-        _type = parts[0].strip()
-        _name = parts[1].strip()
-        _range = int(parts[2].strip().split("-")[1]) - int(parts[2].strip().split("-")[0])
-        if _range == 1:
-            rand = int(random.random() * 128)
-            content1 = "(%s, %s, %s, %s)" %(_name, "==", hex(rand), hex(1))
-            condition_maps["@CONDITION%d:%s@"%(i, key.strip('@'))] = content1
-        elif _range == 2:
-            rand = int(random.random() * 0x10000)
-            content1 = "(%s, %s, %s, %s)" %(_name, "==", hex(rand), hex(1))
-            condition_maps["@CONDITION%d:%s@"%(i, key.strip('@'))] = content1
-            i = i + 1
-            rand = int(random.random() * (0x10000-0x1000))
-            content2 = "(%s, %s, %s, %s, %s)" %(_name, "&&", hex(rand), hex(rand+0x1000), "0x1000")
-            condition_maps["@CONDITION%d:%s@"%(i, key.strip('@'))] = content2
-        elif _range == 4:
-            rand = int(random.random() * 0x100000000)
-            content1 = "(%s, %s, %s, %s)" %(_name, "==", hex(rand), hex(1))
-            condition_maps["@CONDITION%d:%s@"%(i, key.strip('@'))] = content1
-            i = i + 1
-            rand = int(random.random() * (0x100000000-0x1000))
-            content2 = "(%s, %s, %s, %s, %s)" %(_name, "&&", hex(rand), hex(rand+0x1000), "0x1000")
-            condition_maps["@CONDITION%d:%s@"%(i, key.strip('@'))] = content2
-            i = i + 1
-            rand = int(random.random() * (0x100000000-0x100000))
-            content3 = "(%s, %s, %s, %s, %s)" %(_name, "&&", hex(rand), hex(rand+0x100000), "0x100000")
-            condition_maps["@CONDITION%d:%s@"%(i, key.strip('@'))] = content3
-            i = i + 1
-            rand = int(random.random() * (0x100000000-0x10000000))
-            content4 = "(%s, %s, %s, %s, %s)" %(_name, "&&", hex(rand), hex(rand+0x10000000), "0x10000000")
-            condition_maps["@CONDITION%d:%s@"%(i, key.strip('@'))] = content4
-        else:
-            rand_str = ''.join(random.sample(string.ascii_letters + string.digits, _range))
-            content1 = "(%s, %s, %s, %d, %s)" %(_name, "strncmp", "\""+rand_str+"\"", _range, hex(1))
-            condition_maps["@CONDITION%d:%s@"%(i, key.strip('@'))] = content1
-            i = i + 1
-            j = j + 1
-            rand_bytes_decl = "unsigned char rand_bytes%d[]={" %(j)
-            for k in range(0, _range):
-                rand_bytes_decl = rand_bytes_decl + hex(int(random.random()*128)) + ","
-            rand_bytes_decl = rand_bytes_decl[:-1]
-            rand_bytes_decl = rand_bytes_decl + "};"
-            extra_vars["@EXTRA_VARS%d@"%(j)] = rand_bytes_decl
-            content2 = "(%s, %s, %s, %d, %s)" %(_name, "memcmp", "rand_bytes%d"%(j), _range, hex(1))
-            condition_maps["@CONDITION%d:%s@"%(i, key.strip('@'))] = content2
-
-    # 增加两个同类型的污点变量之间的比较
-    return condition_maps, extra_vars
-
-
-def gen_config(input_size, tainted_size):
-    config_maps = []
-    results = gen_var_range(input_size, tainted_size)
-    for result in results:
-        i = 0
-        var_map = {}
-        config_map = {}
-        config_map["@INPUT_SIZE@"] = input_size
-        config_map["@TAINTED_SIZE@"] = tainted_size
-        for one in result:
-            i = i + 1
-            start, length = one
-            _type = ""
-            if length == 1:
-                _type = "unsigned char"
-            elif length == 2 or length == 4:
-                _type = "unsigned int"
-            else:
-                _type = "unsigned char*"
-            content = "(%s, var%d, %d-%d)" %(_type, i, start, start+length)
-            var_map["@VAR%d@"%(i)] = content
-        condition_map, extra_vars = gen_conditions(var_map)
-        config_map = dict(config_map, ** var_map)
-        config_map = dict(config_map, ** condition_map)
-        config_map = dict(config_map, ** extra_vars)
-        config_map["@TAINTED_VAR_NUM@"] = i
-        config_maps.append(config_map)
-    # write config files
-    i = 0
-    for config_map in config_maps:
-        #i = i + 1
-        #_file_name = "IS%d_TS%d_TV%d_%d.conf" %(config_map["@INPUT_SIZE@"], config_map["@TAINTED_SIZE@"], config_map["@TAINTED_VAR_NUM@"], i)
-        _file_name = "IS%d_TS%d_TV%d.conf" %(config_map["@INPUT_SIZE@"], config_map["@TAINTED_SIZE@"], config_map["@TAINTED_VAR_NUM@"])
-        config_map["@CONFIG_FILE@"] = _file_name
-        fp = open(_file_name, "w")
-        content = ""
-        for key in sorted(config_map.keys()):
-            line = key + "="
-            line = line + str(config_map[key]) + "\n"
-            content = content + line
-        fp.write(content)
-        fp.flush()
-        fp.close()
-    return config_maps
 
 
 def _gen_path(conditions):
@@ -239,6 +69,7 @@ def _gen_path(conditions):
 
 def gen_struct(config_map):
     conditions = {}
+    testcases_dir = []
     for key in config_map.keys():
         if key.startswith("@CONDITION"):
             cond_id = key.split(":")[0]
@@ -278,6 +109,8 @@ def gen_struct(config_map):
         os.system("mkdir %s" %(dirname))
         os.system("cp %s %s" %(config_map["@CONFIG_FILE@"], os.path.join(dirname, "config")))
         os.system("mv %s %s" %(struct_file, os.path.join(dirname, "struct")))
+        testcases_dir.append(dirname)
+    return testcases_dir
 
 
 def gen_var_def(key, config_map):
@@ -297,6 +130,56 @@ def gen_var_def(key, config_map):
     elif (_type == TYPE_UNSIGNED_CHAR_P):
         def_str = def_str + "&input[%d];\n" %(_start)
     return def_str
+
+
+# 往struct_file里添加隐形数据流，数量为inum个
+def add_implicit_dataflow(struct_file, inum=-1):
+    content = ""
+    with open(struct_file) as fp:
+        content = fp.read()
+    lines = content.split("\n")
+    cond_linenums = []
+    for i in range(0, len(lines)):
+        if lines[i].startswith("#"):
+            continue
+        if lines[i].startswith("@CONDITION") and lines[i].find("$NOISE$") < 0:
+            cond_linenums.append(i)
+
+    implicit_conds = []
+    if inum > 0 and inum <= len(cond_linenums):
+        for i in range(0, inum):
+            index = int(len(cond_linenums)*random.random())
+            implicit_conds.append(cond_linenums.pop(index))
+    for i in range(0, len(implicit_conds)):
+        linenum = implicit_conds[i]
+        line = lines[linenum]
+        lines[linenum] = line + "$IMPLICIT_DATAFLOW$"
+    content = ""
+    for line in lines:
+        content = content + line + "\n"
+    return content
+
+
+def _implicit_dataflow(conditions_str, value, tmp_index, if_implicit_dataflow, op):
+    if if_implicit_dataflow:
+        conditions_str = conditions_str + "int tmp%d = 0;\n" %(tmp_index)
+        if op == "==":
+            conditions_str = conditions_str + "if (%s == %s)\n" %(value[0].strip(), value[2].strip())
+        elif op == "&&":
+            conditions_str = conditions_str + "if (%s > %s && %s < %s)\n" %(value[0].strip(), value[2].strip(), value[0].strip(), value[3].strip())
+        elif op == "strncmp" or op == "memcmp":
+            conditions_str = conditions_str + "if (%s(%s, %s, %s) == 0)\n" %(op, value[0].strip(), value[2].strip(), value[3].strip())
+        conditions_str = conditions_str + "tmp%d = 1;\n" %(tmp_index)
+        conditions_str = conditions_str + "if (tmp%d == 1) {\n" %(tmp_index)
+        tmp_index = tmp_index + 1
+    else:
+        if op == "==":
+            conditions_str = conditions_str + "if (%s == %s) {\n" %(value[0].strip(), value[2].strip())
+        elif op == "&&":
+            conditions_str = conditions_str + "if (%s > %s && %s < %s) {\n" %(value[0].strip(), value[2].strip(), value[0].strip(), value[3].strip())
+        elif op == "strncmp" or op == "memcmp":
+            conditions_str = conditions_str + "if (%s(%s, %s, %s) == 0) {\n" %(op, value[0].strip(), value[2].strip(), value[3].strip())
+    return conditions_str, tmp_index
 
 
 def gen_testcase(dirname, template_file):
@@ -327,14 +210,16 @@ def gen_testcase(dirname, template_file):
     # insert defs
     src = src.replace("@VARDEFS@", defs)
     
-    # gen conditions, and gen poc
+    # gen conditions, and gen poc 解析struct文件，生成代码
     with open(struct_file) as fp:
         content = fp.readlines()
-    conditions_str = ""
-    conditions_str_kai = ""
+    conditions_str = ""     # 原始语句
+    conditions_str_kai = "" # 使用高斯函数代替判断语句
     bug_trigger_space = ""
-    bug_seen = False
-    bug_kai = False
+    bug_seen = False #是否已经处理了@BUG@标签
+    bug_kai = False  #是否使用高斯函数代替判断语句
+    implicit_dataflow = False #是否使用隐式数据流
+    tmp_index = 0; #用于隐式数据流的临时变量之编号
     dirname_kai = dirname + "_kai"
     bug_related_constraints_num = 0
     bug_unrelated_constraints_num = 0
@@ -347,20 +232,24 @@ def gen_testcase(dirname, template_file):
             bug_seen = True
         elif line.startswith("@CONDITION"):
             if content[line_num+1].strip().startswith("@BUG@"):
-                bug_kai = True
+                bug_kai = True #说明这个condition紧挨着@BUG@，是可以被替换成高斯函数的
+            if line.find("$IMPLICIT_DATAFLOW$") >= 0:
+                implicit_dataflow = True
+            else:
+                implicit_dataflow = False
             if not bug_seen:
                 bug_related_constraints_num += 1
             else:
                 bug_unrelated_constraints_num += 1
 
             # gen poc, get the range of the tainted variable
-            variable = "@" + line.split(":")[-1].strip()
+            variable = "@" + line.split(":")[-1].strip().split("$")[0]
             variable = config_map[variable]
             _range = variable.strip().strip("(").strip(")").split(",")[-1].strip()
             _start = int(_range.split("-")[0])
             _end = int(_range.split("-")[1])
             
-            value = config_map[line]
+            value = config_map[line.split("$")[0]]
             value = value.strip("(").strip(")").split(",")
             op = value[1].strip()
             if op == "==":
@@ -369,8 +258,7 @@ def gen_testcase(dirname, template_file):
                     lower = int(lower, 16) - 1
                     upper = lower + 2
                     conditions_str_kai = conditions_str + "bug2(%s, %d, %d);\n"%(value[0].strip(), lower, upper)
-
-                conditions_str = conditions_str + "if (%s == %s) {\n" %(value[0].strip(), value[2].strip())
+                conditions_str, tmp_index = _implicit_dataflow(conditions_str, value, tmp_index, implicit_dataflow, op)
                 conditions_str = conditions_str + "//@NOISE@\n"
                 bug_trigger_space = bug_trigger_space + value[3].strip() + "*"
                 # gen poc
@@ -388,7 +276,7 @@ def gen_testcase(dirname, template_file):
                     upper = int(upper, 16)
                     conditions_str_kai = conditions_str + "bug2(%s, %d, %d);\n"%(value[0].strip(), lower, upper)
 
-                conditions_str = conditions_str + "if (%s > %s && %s < %s) {\n" %(value[0].strip(), value[2].strip(), value[0].strip(), value[3].strip())
+                conditions_str, tmp_index = _implicit_dataflow(conditions_str, value, tmp_index, implicit_dataflow, op)
                 conditions_str = conditions_str + "//@NOISE@\n"
                 bug_trigger_space = bug_trigger_space + value[4].strip() + "*"
                 # gen poc
@@ -400,7 +288,7 @@ def gen_testcase(dirname, template_file):
                 for i in range(_start+blank, _end):
                     poc[i] = int_arr[i-_start-blank]
             elif op == "strncmp" or op == "memcmp":
-                conditions_str = conditions_str + "if (%s(%s, %s, %s) == 0) {\n" %(op, value[0].strip(), value[2].strip(), value[3].strip())
+                conditions_str, tmp_index = _implicit_dataflow(conditions_str, value, tmp_index, implicit_dataflow, op)
                 conditions_str = conditions_str + "//@NOISE@\n"
                 bug_trigger_space = bug_trigger_space + value[4].strip() + "*"
                 # gen poc
@@ -461,7 +349,7 @@ def gen_testcase(dirname, template_file):
     with open(src_file, "w") as fp:
         fp.write(src_1)
 
-    if conditions_str_kai:
+    if conditions_str_kai and dirname.find("_kai") < 0 and dirname.find("_IDF") < 0:
         os.system("cp -r %s %s" %(dirname, dirname_kai))
         os.system("rm %s" %(os.path.join(dirname_kai, dirname.strip("/").split("/")[-1] + ".c")))
         src_kai = src.replace("@INSERTION@", conditions_str_kai)
@@ -486,18 +374,60 @@ def parse_config(config_file):
         config_map[key]=value
     return config_map
 
+#===================================
+# 自定义的样本生成函数，非通用功能 =
+#===================================
 
-def parse_structure(struct_file, configurations):
-    content = ""
-    with open(struct_file) as struct:
-        content = struct.read()
-    return replace(content, configurations)
-
+# 修改struct文件，给样本增添隐式数据流
+def gen_testcases_implicit_dataflow(testcase_dir):
+    testcase_dir_lst = []
+    idf_testcase_dir_lst = []
+    for one in os.listdir(testcase_dir):
+        if one == "lib" or one == "include" or one.find("_kai") >= 0:
+            continue
+        testcase_dir_lst.append(os.path.join(testcase_dir, one))
+    for one in testcase_dir_lst:
+        # 跳过已经包含隐式数据流的样本
+        if one.find("_IDF") >= 0:
+            continue
+        # copy config and struct
+        new_dir = one + "_IDF1"
+        struct_file = os.path.join(one, "struct")
+        config_file = os.path.join(one, "config")
+        if not os.path.exists(new_dir):
+            os.makedirs(new_dir)
+        os.system("cp %s %s" %(struct_file, new_dir))
+        os.system("cp %s %s" %(config_file, new_dir))
+        content = add_implicit_dataflow(struct_file, inum=1)
+        with open(struct_file, "w") as fp:
+            fp.write(content)
+        idf_testcase_dir_lst.append(new_dir)
+    # 返回样本路径列表
+    return idf_testcase_dir_lst
 
 if __name__ == '__main__':
-    config_maps_4_4 = gen_config(4, 4)
-    config_maps_8_4 = gen_config(8, 4)
-    config_maps_8_8 = gen_config(8, 8)
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-c", "--config", dest="config", help="input configuration file")
+    parser.add_argument("-g", "--generate", dest="gen", help="[idf]:generate implicit dataflow")
+    parser.add_argument("-t", "--target", dest="target", help="target directory")
+    args = parser.parse_args()
+    
+    if args.config:
+        config_map = parse_config(args.config)
+        testcases_dir = gen_struct(config_map)
+        for testcase in testcases_dir:
+            gen_testcase(testcase, "template")
+
+    if args.gen == "idf":
+        idf_testcases = gen_testcases_implicit_dataflow(args.target)
+        for testcase in idf_testcases:
+            gen_testcase(testcase, "template")
+
+
+    #config_maps_4_4 = gen_config(4, 4)
+    #config_maps_8_4 = gen_config(8, 4)
+    #config_maps_8_8 = gen_config(8, 8)
     #config_maps_16_4 = gen_config(16, 4)
     #config_maps_16_8 = gen_config(16, 8)
     #config_maps_16_16 = gen_config(16, 16)
@@ -505,12 +435,12 @@ if __name__ == '__main__':
 
     #for config_map in config_maps_32_16:
     #    gen_struct(config_map)
-    for config_map in config_maps_4_4:
-        gen_struct(config_map)
-    for config_map in config_maps_8_4:
-        gen_struct(config_map)
-    for config_map in config_maps_8_8:
-        gen_struct(config_map)
+    #for config_map in config_maps_4_4:
+    #    gen_struct(config_map)
+    #for config_map in config_maps_8_4:
+    #    gen_struct(config_map)
+    #for config_map in config_maps_8_8:
+    #    gen_struct(config_map)
     #for config_map in config_maps_16_4:
     #    gen_struct(config_map)
     #for config_map in config_maps_16_8:
@@ -518,18 +448,6 @@ if __name__ == '__main__':
     #for config_map in config_maps_16_16:
     #    gen_struct(config_map)
 
-    print("start gen testcases")
-    for testcase in os.listdir(testcase_dir):
-        gen_testcase(os.path.join(testcase_dir, testcase), "template")
-    """
-    target_dir = sys.argv[1]
-    #src_file = "./main.c"
-    src_file = os.path.join(target_dir, "template")
-    config_file = os.path.join(target_dir, "config")
-    struct_file = os.path.join(target_dir, "struct")
-    src_buf = gen_src(src_file, config_file, struct_file)
-    target_src = os.path.join(target_dir, target_dir.strip("/").split("/")[-1]+".c")
-    print(target_src)
-    with open(target_src, 'w') as fp:
-        fp.write(src_buf)
-    """
+    #print("start gen testcases")
+    #for testcase in os.listdir(testcase_dir):
+    #    gen_testcase(os.path.join(testcase_dir, testcase), "template")
