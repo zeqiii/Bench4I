@@ -17,6 +17,41 @@ FUN_READ_UNSIGNED_INT16 = "read_unsigned_int16"
 
 testcase_dir = "testcases"
 
+
+class Config():
+    def __init__(self, config_file=None, config_map=None):
+        self.config_map = config_map
+        self.config_file = config_file
+
+    def parse_config(self, config_file):
+        pass
+
+# 计算in_str的crc值，长度为length个字节
+def crc(in_str, length):
+    temp = 0
+    l = length
+    while(True):
+        if l == 0:
+            break
+        index = length - l
+        i = 0x80
+        while True:
+            if i == 0:
+                break
+            temp = temp * 2
+            if((temp & 0x10000) != 0):
+                temp = temp ^ 0x11021
+            if type(in_str) == str:
+                if((ord(in_str[index]) & i) != 0):
+                    temp = temp ^ (0x10000 ^ 0x11021)
+            elif type(in_str) == bytes:
+                if((in_str[index] & i) != 0):
+                    temp = temp ^ (0x10000 ^ 0x11021)
+            i = i >> 1
+        l = l - 1
+    return temp
+
+
 # one byte per integer, n bytes hex string corresponds to n integers array
 def to_intarray(hex_str):
     arr = []
@@ -25,7 +60,7 @@ def to_intarray(hex_str):
         hex_str = hex_str[2:]
     if len(hex_str) % 2 == 1:
         hex_str = "0" + hex_str
-    for index in range(0, len(hex_str)/2):
+    for index in range(0, int(len(hex_str)/2)):
         i = index * 2
         v = 0
         v2 = 0
@@ -47,11 +82,15 @@ def to_intarray(hex_str):
 def _gen_path(conditions):
     if len(conditions.keys()) <= 1:
         result_paths = []
-        for one in conditions[conditions.keys()[0]]:
+        _keys = list(conditions.keys())
+        k = _keys[0]
+        for one in conditions[k]:
             result_paths.append([one])
         return result_paths
     else:
-        cond_ids = conditions.pop(conditions.keys()[0])
+        _keys = list(conditions.keys())
+        k = _keys[0]
+        cond_ids = conditions.pop(k)
         paths = _gen_path(conditions)
         result_paths = []
         for one in cond_ids:
@@ -129,11 +168,14 @@ def gen_var_def(key, config_map):
         def_str = def_str + (FUN_READ_UNSIGNED_INT16 if _range==2 else FUN_READ_UNSIGNED_INT32) + "(&input[%d]);\n"%(_start)
     elif (_type == TYPE_UNSIGNED_CHAR_P):
         def_str = def_str + "&input[%d];\n" %(_start)
+    def_str = def_str + "int %s_size = %d;\n" %(_name, _range);
     return def_str
 
 
-# 往struct_file里添加隐形数据流，数量为inum个
-def add_implicit_dataflow(struct_file, inum=-1):
+# 往struct_file的条件语句上添加妨碍特征，数量为inum个
+# 妨碍特征可以为 "IDF1"（简单的隐式数据流） "IDF2"（复杂一点的隐式数据流） "CRC"
+def add_hampering_feature(config_file, struct_file, hampering_feature="IDF1", inum=-1):
+    config_map = parse_config(config_file)
     content = ""
     with open(struct_file) as fp:
         content = fp.read()
@@ -142,6 +184,12 @@ def add_implicit_dataflow(struct_file, inum=-1):
     for i in range(0, len(lines)):
         if lines[i].startswith("#"):
             continue
+        if hampering_feature == "CRC":
+            #排除条件是 && 的条件，因为CRC只能改造‘==’和‘strncmp’，memcmp因为难以处理常量CRC值，暂时搁置
+            line = lines[i].strip().split('$')[0].strip()
+            if line.startswith("@CONDITION"):
+                if config_map[line].split(',')[1].strip() == "&&" or line.find("memcmp") >= 0:
+                    continue
         if lines[i].startswith("@CONDITION") and lines[i].find("$NOISE$") < 0:
             cond_linenums.append(i)
 
@@ -150,17 +198,26 @@ def add_implicit_dataflow(struct_file, inum=-1):
         for i in range(0, inum):
             index = int(len(cond_linenums)*random.random())
             implicit_conds.append(cond_linenums.pop(index))
+    else:
+        return None
+
     for i in range(0, len(implicit_conds)):
         linenum = implicit_conds[i]
         line = lines[linenum]
-        lines[linenum] = line + "$IMPLICIT_DATAFLOW$"
+        if hampering_feature == "IDF1":
+            lines[linenum] = line + "$IMPLICIT_DATAFLOW1$"
+        elif hampering_feature == "IDF2":
+            lines[linenum] = line + "$IMPLICIT_DATAFLOW2$"
+        elif hampering_feature == "CRC":
+            lines[linenum] = line + "$CRC$"
     content = ""
     for line in lines:
         content = content + line + "\n"
     return content
 
 
-def _implicit_dataflow(conditions_str, value, tmp_index, if_implicit_dataflow, op):
+def _implicit_dataflow1(conditions_str, value, tmp_index, if_implicit_dataflow):
+    op = value[1].strip()
     if if_implicit_dataflow:
         conditions_str = conditions_str + "int tmp%d = 0;\n" %(tmp_index)
         if op == "==":
@@ -181,6 +238,71 @@ def _implicit_dataflow(conditions_str, value, tmp_index, if_implicit_dataflow, o
             conditions_str = conditions_str + "if (%s(%s, %s, %s) == 0) {\n" %(op, value[0].strip(), value[2].strip(), value[3].strip())
     return conditions_str, tmp_index
 
+def __gen_src_implicit_dataflow2(var_name, tmp_index, config_map):
+    #int temp=0, temp2=0, ch=0; // used for implicit dataflow
+    #char cc[var_name_size]
+    #int VAR1_size=4; //代表VAR1变量的大小为4个字节
+    var_size = var_name+"_size"
+    var_type = config_map["@%s@"%(var_name)].strip("(").strip(")").split(",")[0].strip()
+    src = "unsigned char cc%d[%s];\n" %(tmp_index, var_size)
+    if(var_type == "unsigned char" or var_type == "unsigned int"):
+        src = src + "for (i=0; i<%s; i++) {\n" %(var_size)
+        src = src + "ch = 0;\ntemp = (%s>>i*8) & 0x000000FF;\nfor (int j=0; j<8; j++) {\n"%(var_name)
+        src = src + "temp2 = temp & (1<<j);\nif (temp2!=0) ch |= 1<<j;\n}\n"
+        src = src + "cc%d[%s-1-i] = ch;\n}\n"%(tmp_index, var_size)
+        src = src + "ch = read_int(cc%d, %s);\n" %(tmp_index, var_size)
+    elif(var_type == "unsigned char*"):
+        src = src + "for (i=0; i<%s; i++) {\n" %(var_size)
+        src = src + "ch = 0;\nfor (int j = 0; j<8; j++){\n"
+        src = src + "temp = %s[i];\ntemp2 = temp & (1<<j);\nif (temp2 != 0) ch |= 1<<j;\n}\n"%(var_name)
+        src = src + "cc%d[i] = ch;\n}\n" %(tmp_index)
+    return src
+
+def _implicit_dataflow2(conditions_str, value, tmp_index, if_implicit_dataflow, config_map):
+    var_name = value[0];
+    op = value[1].strip()
+    if if_implicit_dataflow:
+        src = __gen_src_implicit_dataflow2(var_name, tmp_index, config_map)
+        conditions_str = conditions_str + src
+        if op == "==":
+            conditions_str = conditions_str + "if (ch == %s) {\n" %(value[2].strip())
+        elif op == "&&":
+            conditions_str = conditions_str + "if (ch > %s && ch < %s) {\n" %(value[2].strip(), value[3].strip())
+        elif op == "strncmp" or op == "memcmp":
+            conditions_str = conditions_str + "if (%s(cc%d, %s, %s) == 0) {\n" %(op, tmp_index, value[2].strip(), value[3].strip())
+        tmp_index = tmp_index + 1
+    else:
+        if op == "==":
+            conditions_str = conditions_str + "if (%s == %s) {\n" %(value[0].strip(), value[2].strip())
+        elif op == "&&":
+            conditions_str = conditions_str + "if (%s > %s && %s < %s) {\n" %(value[0].strip(), value[2].strip(), value[0].strip(), value[3].strip())
+        elif op == "strncmp" or op == "memcmp":
+            conditions_str = conditions_str + "if (%s(%s, %s, %s) == 0) {\n" %(op, value[0].strip(), value[2].strip(), value[3].strip())
+    return  conditions_str, tmp_index
+
+def _crc(conditions_str, value, val_size, tmp_index, if_crc, config_map):
+    var_name = value[0];
+    op = value[1].strip()
+    if if_crc:
+        bytes_num = 0
+        if op == "==":
+            conditions_str = conditions_str + "unsigned char* tmp%d = int2byte(%s, %s);\n" %(tmp_index, var_name, var_name+"_size")
+            b_arr = (int(value[2].strip(), 16)).to_bytes(val_size, byteorder='big')
+            crc_val = crc(b_arr, val_size)
+            conditions_str = conditions_str + "if (crc(tmp%d, %s) == %d) {\n" %(tmp_index, var_name+"_size", crc_val)
+            tmp_index = tmp_index + 1
+        elif op == "strncmp":
+            crc_val = crc(value[2].strip().strip('\"'), int(value[3].strip()))
+            conditions_str = conditions_str + "if(crc(%s, %s) == %d) {\n" %(value[0].strip(), var_name+"_size", crc_val)
+    else:
+        if op == "==":
+            conditions_str = conditions_str + "if (%s == %s) {\n" %(value[0].strip(), value[2].strip())
+        elif op == "&&":
+            conditions_str = conditions_str + "if (%s > %s && %s < %s) {\n" %(value[0].strip(), value[2].strip(), value[0].strip(), value[3].strip())
+        elif op == "strncmp" or op == "memcmp":
+            conditions_str = conditions_str + "if (%s(%s, %s, %s) == 0) {\n" %(op, value[0].strip(), value[2].strip(), value[3].strip())
+    return conditions_str, tmp_index
+
 
 def gen_testcase(dirname, template_file):
     config_file = os.path.join(dirname, "config")
@@ -192,7 +314,7 @@ def gen_testcase(dirname, template_file):
     for i in range(0, size):
         content = content + "0"
     # poc bytes buffer
-    poc = bytearray(content)
+    poc = bytearray(content, 'utf-8')
     with open(os.path.join(dirname, "seed"), "w") as fp:
         fp.write(content)
     # gen src
@@ -218,12 +340,14 @@ def gen_testcase(dirname, template_file):
     bug_trigger_space = ""
     bug_seen = False #是否已经处理了@BUG@标签
     bug_kai = False  #是否使用高斯函数代替判断语句
-    implicit_dataflow = False #是否使用隐式数据流
     tmp_index = 0; #用于隐式数据流的临时变量之编号
     dirname_kai = dirname + "_kai"
     bug_related_constraints_num = 0
     bug_unrelated_constraints_num = 0
     for line_num in range(0, len(content)):
+        implicit_dataflow1 = False #是否使用隐式数据流，类型1
+        implicit_dataflow2 = False #是否使用隐式数据流，类型2
+        crc = False # 是否使用crc对抗符号执行
         line = content[line_num].strip()
         if line.startswith("#"):
             continue
@@ -233,10 +357,15 @@ def gen_testcase(dirname, template_file):
         elif line.startswith("@CONDITION"):
             if content[line_num+1].strip().startswith("@BUG@"):
                 bug_kai = True #说明这个condition紧挨着@BUG@，是可以被替换成高斯函数的
-            if line.find("$IMPLICIT_DATAFLOW$") >= 0:
-                implicit_dataflow = True
-            else:
-                implicit_dataflow = False
+            if line.find("$IMPLICIT_DATAFLOW1$") >= 0:
+                implicit_dataflow1 = True
+                implicit_dataflow2 = False
+            elif line.find("$IMPLICIT_DATAFLOW2$") >= 0:
+                implicit_dataflow1 = False
+                implicit_dataflow2 = True
+            elif line.find("$CRC$") >= 0:
+                crc = True
+
             if not bug_seen:
                 bug_related_constraints_num += 1
             else:
@@ -248,6 +377,7 @@ def gen_testcase(dirname, template_file):
             _range = variable.strip().strip("(").strip(")").split(",")[-1].strip()
             _start = int(_range.split("-")[0])
             _end = int(_range.split("-")[1])
+            _size = _end - _start # 变量所占字节数
             
             value = config_map[line.split("$")[0]]
             value = value.strip("(").strip(")").split(",")
@@ -258,7 +388,12 @@ def gen_testcase(dirname, template_file):
                     lower = int(lower, 16) - 1
                     upper = lower + 2
                     conditions_str_kai = conditions_str + "bug2(%s, %d, %d);\n"%(value[0].strip(), lower, upper)
-                conditions_str, tmp_index = _implicit_dataflow(conditions_str, value, tmp_index, implicit_dataflow, op)
+                if implicit_dataflow2:
+                    conditions_str, tmp_index = _implicit_dataflow2(conditions_str, value, tmp_index, implicit_dataflow2, config_map)
+                elif crc:
+                    conditions_str, tmp_index = _crc(conditions_str, value, _size, tmp_index, crc, config_map)
+                else:
+                    conditions_str, tmp_index = _implicit_dataflow1(conditions_str, value, tmp_index, implicit_dataflow1)
                 conditions_str = conditions_str + "//@NOISE@\n"
                 bug_trigger_space = bug_trigger_space + value[3].strip() + "*"
                 # gen poc
@@ -276,7 +411,11 @@ def gen_testcase(dirname, template_file):
                     upper = int(upper, 16)
                     conditions_str_kai = conditions_str + "bug2(%s, %d, %d);\n"%(value[0].strip(), lower, upper)
 
-                conditions_str, tmp_index = _implicit_dataflow(conditions_str, value, tmp_index, implicit_dataflow, op)
+                if implicit_dataflow2:
+                    conditions_str, tmp_index = _implicit_dataflow2(conditions_str, value, tmp_index, implicit_dataflow2, config_map)
+                else:
+                    conditions_str, tmp_index = _implicit_dataflow1(conditions_str, value, tmp_index, implicit_dataflow1)
+
                 conditions_str = conditions_str + "//@NOISE@\n"
                 bug_trigger_space = bug_trigger_space + value[4].strip() + "*"
                 # gen poc
@@ -288,7 +427,12 @@ def gen_testcase(dirname, template_file):
                 for i in range(_start+blank, _end):
                     poc[i] = int_arr[i-_start-blank]
             elif op == "strncmp" or op == "memcmp":
-                conditions_str, tmp_index = _implicit_dataflow(conditions_str, value, tmp_index, implicit_dataflow, op)
+                if implicit_dataflow2:
+                    conditions_str, tmp_index = _implicit_dataflow2(conditions_str, value, tmp_index, implicit_dataflow2, config_map)
+                if crc:
+                    conditions_str, tmp_index = _crc(conditions_str, value, _size, tmp_index, crc, config_map)
+                else:
+                    conditions_str, tmp_index = _implicit_dataflow1(conditions_str, value, tmp_index, implicit_dataflow1)
                 conditions_str = conditions_str + "//@NOISE@\n"
                 bug_trigger_space = bug_trigger_space + value[4].strip() + "*"
                 # gen poc
@@ -349,7 +493,7 @@ def gen_testcase(dirname, template_file):
     with open(src_file, "w") as fp:
         fp.write(src_1)
 
-    if conditions_str_kai and dirname.find("_kai") < 0 and dirname.find("_IDF") < 0:
+    if conditions_str_kai and dirname.find("_kai") < 0 and dirname.find("_IDF") < 0 and dirname.find("_CRC") < 0:
         os.system("cp -r %s %s" %(dirname, dirname_kai))
         os.system("rm %s" %(os.path.join(dirname_kai, dirname.strip("/").split("/")[-1] + ".c")))
         src_kai = src.replace("@INSERTION@", conditions_str_kai)
@@ -379,7 +523,7 @@ def parse_config(config_file):
 #===================================
 
 # 修改struct文件，给样本增添隐式数据流
-def gen_testcases_implicit_dataflow(testcase_dir):
+def gen_testcases_hampering_feature(testcase_dir, hampering_feature="IDF1"):
     testcase_dir_lst = []
     idf_testcase_dir_lst = []
     for one in os.listdir(testcase_dir):
@@ -387,29 +531,70 @@ def gen_testcases_implicit_dataflow(testcase_dir):
             continue
         testcase_dir_lst.append(os.path.join(testcase_dir, one))
     for one in testcase_dir_lst:
-        # 跳过已经包含隐式数据流的样本
-        if one.find("_IDF") >= 0:
+        # 跳过已经包含隐式数据流/CRC的样本
+        if one.find("_IDF") >= 0 or one.find("CRC") >= 0:
             continue
         # copy config and struct
-        new_dir = one + "_IDF1"
+        if hampering_feature == "IDF1":
+            new_dir = one + "_IDF1"
+        elif hampering_feature == "CRC":
+            new_dir = one + "_CRC"
         struct_file = os.path.join(one, "struct")
         config_file = os.path.join(one, "config")
         if not os.path.exists(new_dir):
             os.makedirs(new_dir)
         os.system("cp %s %s" %(struct_file, new_dir))
         os.system("cp %s %s" %(config_file, new_dir))
-        content = add_implicit_dataflow(struct_file, inum=1)
-        with open(struct_file, "w") as fp:
+        if hampering_feature == "IDF1":
+            content = add_hampering_feature(config_file, struct_file, hampering_feature="IDF1", inum=1)
+        elif hampering_feature == "CRC":
+            content = add_hampering_feature(config_file, struct_file, hampering_feature="CRC", inum=1)
+        if not content:
+            # 无法生成带有妨碍特征的struct，删除文件夹，然后处理下一个
+            os.system("rm -rf %s" %(new_dir))
+            continue
+        with open(os.path.join(new_dir, "struct"), "w") as fp:
             fp.write(content)
         idf_testcase_dir_lst.append(new_dir)
     # 返回样本路径列表
     return idf_testcase_dir_lst
 
+# 把IDF1样本的struct中的$IMPLICIT_DATAFLOW1$改成$IMPLICIT_DATAFLOW2$即可
+def gen_testcases_implicit_dataflow2(testcase_dir):
+    IDF1 = []
+    IDF2 = []
+    for one in os.listdir(testcase_dir):
+        if not one.endswith("_IDF1"):
+            continue
+        IDF1.append(os.path.join(testcase_dir, one))
+    for one in IDF1:
+        # 复制
+        new_dir = one[:-1]+"2"
+        if not os.path.exists(new_dir):
+            os.makedirs(new_dir)
+        struct_file = os.path.join(one, "struct")
+        new_struct_file = os.path.join(new_dir, "struct")
+        config_file = os.path.join(one, "config")
+        os.system("cp %s %s" %(struct_file, new_dir))
+        os.system("cp %s %s" %(config_file, new_dir))
+        # 替换原strcut中的$IMPLICIT_DATAFLOW1$
+        with open(struct_file) as fp:
+            content = fp.read()
+            content = content.replace("IMPLICIT_DATAFLOW1", "IMPLICIT_DATAFLOW2")
+            with open(new_struct_file, "w") as wp:
+                wp.write(content)
+        IDF2.append(new_dir)
+    # 返回样本路径列表
+    return IDF2
+
 if __name__ == '__main__':
+
+    in_str = 0x12345678.to_bytes(4, byteorder='big')
+    print(crc(in_str, 4))
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--config", dest="config", help="input configuration file")
-    parser.add_argument("-g", "--generate", dest="gen", help="[idf]:generate implicit dataflow")
+    parser.add_argument("-g", "--generate", dest="gen", help="[idf1|idf2|crc]:generate implicit dataflow type1|type2")
     parser.add_argument("-t", "--target", dest="target", help="target directory")
     args = parser.parse_args()
     
@@ -419,9 +604,19 @@ if __name__ == '__main__':
         for testcase in testcases_dir:
             gen_testcase(testcase, "template")
 
-    if args.gen == "idf":
-        idf_testcases = gen_testcases_implicit_dataflow(args.target)
+    if args.gen == "idf1":
+        idf_testcases = gen_testcases_hampering_feature(args.target, hampering_feature="IDF1")
         for testcase in idf_testcases:
+            gen_testcase(testcase, "template")
+
+    if args.gen == "idf2":
+        idf_testcases = gen_testcases_implicit_dataflow2(args.target)
+        for testcase in idf_testcases:
+            gen_testcase(testcase, "template")
+
+    if args.gen == "crc":
+        testcases = gen_testcases_hampering_feature(args.target, hampering_feature="CRC")
+        for testcase in testcases:
             gen_testcase(testcase, "template")
 
 

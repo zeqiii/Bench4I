@@ -145,7 +145,7 @@ def gen_config(input_size, tainted_size):
                 _type = "unsigned int"
             else:
                 _type = "unsigned char*"
-            content = "(%s, var%d, %d-%d)" %(_type, i, start, start+length)
+            content = "(%s, VAR%d, %d-%d)" %(_type, i, start, start+length)
             var_map["@VAR%d@"%(i)] = content
         condition_map, extra_vars = gen_conditions(var_map)
         config_map = dict(config_map, ** var_map)

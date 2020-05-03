@@ -25,6 +25,39 @@ unsigned int read_unsigned_int32(unsigned char *input) {
     return uint32;
 }
 
+unsigned int read_int(unsigned char *input, int size) {
+    unsigned int result = 0;
+    for (int i=0; i<size; i++)
+        result = (result<<(8)) | input[i];
+    return result;
+}
+
+unsigned char* int2byte(unsigned int input, unsigned int len) {
+    unsigned char* a = (unsigned char*)malloc(len*sizeof(unsigned char));
+    for(int i=0; i<len; i++) {
+        *(a+len-i-1) = (input>>(i*8)) & 0xFF;
+    }
+    return a;
+}
+
+unsigned long crc(unsigned char* test, unsigned int len) {
+    unsigned long temp = 0;
+    unsigned int crc;
+    unsigned char i;
+    unsigned char *ptr = test;
+    while( len-- ) {
+        for(i = 0x80; i != 0; i = i >> 1) {
+            temp = temp * 2;
+            if((temp & 0x10000) != 0)
+                temp = temp ^ 0x11021;
+            if((*ptr & i) != 0)
+                temp = temp ^ (0x10000 ^ 0x11021);
+        }
+        ptr++;
+    }
+    return temp;
+}
+
 // when input is in (lower, upper), return 1, else return 0
 int gaussian(unsigned int input, unsigned int lower, unsigned int upper) {
     double m = ((double)lower + (double)upper) / 2.0;
@@ -102,6 +135,7 @@ int main(int argc, char **argv) {
     //// common header
     unsigned char input[@INPUT_SIZE@];
     int i, fd, size, tmp;
+    int temp=0, temp2=0, ch=0; // used for implicit dataflow
     struct stat s;
     if ((fd = open(argv[1], O_RDONLY)) == -1) {
         printf("Failed to open file!\n");
