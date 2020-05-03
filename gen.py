@@ -19,12 +19,27 @@ testcase_dir = "testcases"
 
 
 class Config():
-    def __init__(self, config_file=None, config_map=None):
-        self.config_map = config_map
+    def __init__(self, config_file=None):
         self.config_file = config_file
+        self.config_map = None
+        if self.config_file:
+            self.config_map = self.parse_config(self.config_file)
 
     def parse_config(self, config_file):
-        pass
+        config_map = {}
+        config_content = ""
+        with open(config_file) as fp:
+            config_content = fp.read()
+        config_contents = config_content.split('\n')
+        for config_content in config_contents:
+            config_content = config_content.strip()
+            if len(config_content) == 0 or config_content.startswith('#'):
+                continue
+            index = config_content.find("@=")
+            key = config_content[:index+1]
+            value = config_content[index+2:]
+            config_map[key]=value
+        return config_map
 
 # 计算in_str的crc值，长度为length个字节
 def crc(in_str, length):
