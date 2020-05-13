@@ -19,10 +19,14 @@ testcase_dir = "testcases"
 
 
 class Config():
-    def __init__(self, config_file=None):
+    def __init__(self, config_file=None, config_map=None):
         self.config_file = config_file
         self.config_map = None
-        if self.config_file:
+        self.vars = None
+        self.ut_vars = None
+        if config_map:
+            self.config_map = config_map
+        elif self.config_file:
             self.config_map = self.parse_config(self.config_file)
 
     def parse_config(self, config_file):
@@ -40,6 +44,140 @@ class Config():
             value = config_content[index+2:]
             config_map[key]=value
         return config_map
+
+
+    def get_vars(self, UTVAR=False):
+        varlst = []
+        for key in self.config_map.keys():
+            ok = False
+            if not UTVAR and key.startswith("@VAR"):
+                ok = True
+            elif UTVAR and key.startswith("@UTVAR"):
+                ok = True
+            if ok:
+                var = Var(self.config_map)
+                content = self.config_map[key]
+                content = content.strip("(").strip(")")
+                parts = content.split(",")
+                var.type = parts[0].strip()
+                var.name = parts[1].strip()
+                _start = int(parts[2].strip().split("-")[0])
+                _end = int(parts[2].strip().split("-")[1])
+                var.bytes = _end - _start
+                varlst.append(var)
+        return varlst
+
+
+# 父类
+class Template():
+    # 例如 @NOISE:UTVAR4@=(UTVAR4, &&, 242, 244, 0x1)
+    # key为@NOISE:UTVAR4@
+    # value为(UTVAR4, &&, 242, 244, 0x1)
+    def __init__(self, config_file):
+        self.config = None
+        if type(config_file) == type(str):
+            self.config = Config(config_file=config_file)
+        else:
+            self.config = Config(config_map=config_file)
+        self.raw_str = ""
+        self.key = None
+        self.value = None
+
+    def set_raw_str(self, raw):
+        self.raw_str = raw
+        index = raw.find("@=")
+        self.key = raw[:index+1]
+        self.value = raw[index+2:]
+
+    # 解析，例如解析(UTVAR4, &&, 242, 244, 0x1)
+    def parse_value(self):
+        pass
+
+    # 生成源代码
+    def gen_code(self):
+        return ""
+
+# 子类1 Var 代表变量定义
+class Var(Template):
+    TYPE_UNSIGNED_CHAR = "unsigned char"
+    TYPE_UNSIGNED_CHAR_P = "unsigned char*"
+    TYPE_CHAR = "char"
+    TYPE_CHAR_P = "char*"
+    TYPE_UNSIGNED_INT = "unsigned int"
+    TYPE_UNSIGNED_INT_P = "unsigned int*"
+    TYPE_BOOL = "bool"
+    TYPE_BOOL_P = "bool*"
+    TYPE_LONG = "long"
+    TYPE_LONG_P = "long*"
+    TYPE_DOUBLE = "double"
+    TYPE_DOUBLE_P = "double*"
+    def __init__(self, config_file):
+        Template.__init__(self, config_file)
+        self.type = ""
+        self.bytes = -1
+        self.name = ""
+
+    # 变量类型是否为数字类型
+    def is_numeric(self):
+        n = False
+        if self.type == Var.TYPE_UNSIGNED_CHAR:
+            n = True
+        if self.type == Var.TYPE_CHAR:
+            n = True
+        if self.type == Var.TYPE_UNSIGNED_INT:
+            n = True
+        if self.type == Var.TYPE_BOOL:
+            n = True
+        if self.type == Var.TYPE_LONG:
+            n = True
+        if self.type == Var.TYPE_DOUBLE:
+            n = True
+        return n
+
+
+# 子类2 Condition 代表if条件语句
+class Condition(Template):
+
+    def __init__(self, config_file):
+        Template.__init__(self, config_file)
+        self.var_name = ""
+        self.op = "" # '==', '&&', 'strncmp', 'memcmp'
+        self.lower = ""
+        self.upper = ""
+        self.trigger_space = "" # strigger space
+        pass
+
+
+    def parse_value(self):
+        parts = self.value.strip("(").strip(")").split(",")
+        self.var_name = parts[0].strip()
+        self.op = parts[1].strip()
+        if self.op == "==":
+            self.lower = parts[2].strip()
+            self.upper = parts[2].strip()
+            self.trigger_space = '0x01'
+        elif self.op == "&&":
+            self.lower = parts[2].strip()
+            self.upper = parts[3].strip()
+            self.trigger_space = parts[4].strip()
+        elif self.op == "strncmp" or self.op == "memcmp":
+            self.lower = parts[2].strip()
+            self.upper = parts[3].strip() # length
+            self.trigger_space = '0x01'
+
+    def gen_code(self):
+        if not self.raw_str:
+            return ""
+        self.parse_value()
+        src = ""
+        if self.op == "==":
+            src = "if(%s==%s)"%(self.var_name, self.lower)
+        elif self.op == "&&":
+            src = "if(%s>=%s && %s<%s)"%(self.var_name, self.lower, self.var_name, self.upper)
+        elif self.op == "strncmp" or self.op == "memcmp":
+            src = "if(%s(%s, %s, %s))"%(self.op, self.var_name, self.lower, self.upper)
+        return src
+
 
 # 计算in_str的crc值，长度为length个字节
 def crc(in_str, length):
@@ -167,6 +305,74 @@ def gen_struct(config_map):
     return testcases_dir
 
 
+def gen_noise(testcase):
+    config_file = os.path.join(testcase, "config")
+    config_map = parse_config(config_file)
+    noise_cond_map = __gen_noise_from_config(config_map)
+    noise_src = __gen_noise_code(noise_cond_map, config_map)
+    new_content = ""
+    for one in os.listdir(testcase):
+        if one.startswith("IS") and one.endswith(".c"):
+            src_file = os.path.join(testcase, one)
+            with open(src_file) as fp:
+                content = fp.read()
+                parts = content.split("//@NOISE@")
+                for i in range(0, len(parts)-1):
+                    new_content += parts[i]
+                new_content += noise_src
+                new_content += parts[-1]
+            with open(src_file, 'w') as fp:
+                fp.write(new_content)
+            break
+
+
+def __gen_noise_code(noise_cond_map, config_map):
+    vname_src_map = {}
+    src = ""
+    for variable in noise_cond_map.keys():
+        conditions = noise_cond_map[variable]
+        vname_src_map[variable] = []
+        for condition in conditions:
+            cond = Condition(config_map)
+            cond.set_raw_str(condition)
+            src += cond.gen_code()
+            src +=  "\n" + "printf(\"%s\\n\");\n"%(hash(src))
+    return src
+
+
+def __gen_noise_from_config(config_map):
+    config = Config(config_map=config_map)
+    utvs = config.get_vars(UTVAR=True)
+    cond_map = {}
+    for v in utvs:
+        conditions = []
+        # 对于指针、字符串类型的变量，跳过
+        if not v.is_numeric():
+            continue
+        # 如果是数字类型的（暂时限定为整型），则它的取值范围是...
+        _max = pow(2, v.bytes*8)-1
+        step = 0
+        if _max > 100:
+            step = int(_max/100)
+        else:
+            step = -1
+        op = "=="
+        cond_str = ""
+        if step > 1:
+            op = "&&"
+        value = 0
+        while value < _max:
+            if op == "==":
+                cond_str = "@NOISE:%s@=(%s, %s, %d, %s)" %(v.name, v.name, op, value, hex(1))
+                value = value + 1
+            elif op == "&&":
+                cond_str = "@NOISE:%s@=(%s, %s, %d, %d, %s)" %(v.name, v.name, op, value, value+step, hex(step-1))
+                value = value + step
+            conditions.append(cond_str)
+        cond_map[v.name] = conditions
+    return cond_map
+
+
 def gen_var_def(key, config_map):
     content = config_map[key]
     content = content.strip("(").strip(")")
@@ -203,7 +409,7 @@ def add_hampering_feature(config_file, struct_file, hampering_feature="IDF1", in
             #排除条件是 && 的条件，因为CRC只能改造‘==’和‘strncmp’，memcmp因为难以处理常量CRC值，暂时搁置
             line = lines[i].strip().split('$')[0].strip()
             if line.startswith("@CONDITION"):
-                if config_map[line].split(',')[1].strip() == "&&" or line.find("memcmp") >= 0:
+                if config_map[line].split(',')[1].strip() == "&&" or config_map[line].find("memcmp") >= 0:
                     continue
         if lines[i].startswith("@CONDITION") and lines[i].find("$NOISE$") < 0:
             cond_linenums.append(i)
@@ -238,7 +444,7 @@ def _implicit_dataflow1(conditions_str, value, tmp_index, if_implicit_dataflow):
         if op == "==":
             conditions_str = conditions_str + "if (%s == %s)\n" %(value[0].strip(), value[2].strip())
         elif op == "&&":
-            conditions_str = conditions_str + "if (%s > %s && %s < %s)\n" %(value[0].strip(), value[2].strip(), value[0].strip(), value[3].strip())
+            conditions_str = conditions_str + "if (%s >= %s && %s < %s)\n" %(value[0].strip(), value[2].strip(), value[0].strip(), value[3].strip())
         elif op == "strncmp" or op == "memcmp":
             conditions_str = conditions_str + "if (%s(%s, %s, %s) == 0)\n" %(op, value[0].strip(), value[2].strip(), value[3].strip())
         conditions_str = conditions_str + "tmp%d = 1;\n" %(tmp_index)
@@ -248,7 +454,7 @@ def _implicit_dataflow1(conditions_str, value, tmp_index, if_implicit_dataflow):
         if op == "==":
             conditions_str = conditions_str + "if (%s == %s) {\n" %(value[0].strip(), value[2].strip())
         elif op == "&&":
-            conditions_str = conditions_str + "if (%s > %s && %s < %s) {\n" %(value[0].strip(), value[2].strip(), value[0].strip(), value[3].strip())
+            conditions_str = conditions_str + "if (%s >= %s && %s < %s) {\n" %(value[0].strip(), value[2].strip(), value[0].strip(), value[3].strip())
         elif op == "strncmp" or op == "memcmp":
             conditions_str = conditions_str + "if (%s(%s, %s, %s) == 0) {\n" %(op, value[0].strip(), value[2].strip(), value[3].strip())
     return conditions_str, tmp_index
@@ -282,7 +488,7 @@ def _implicit_dataflow2(conditions_str, value, tmp_index, if_implicit_dataflow, 
         if op == "==":
             conditions_str = conditions_str + "if (ch == %s) {\n" %(value[2].strip())
         elif op == "&&":
-            conditions_str = conditions_str + "if (ch > %s && ch < %s) {\n" %(value[2].strip(), value[3].strip())
+            conditions_str = conditions_str + "if (ch >= %s && ch < %s) {\n" %(value[2].strip(), value[3].strip())
         elif op == "strncmp" or op == "memcmp":
             conditions_str = conditions_str + "if (%s(cc%d, %s, %s) == 0) {\n" %(op, tmp_index, value[2].strip(), value[3].strip())
         tmp_index = tmp_index + 1
@@ -290,7 +496,7 @@ def _implicit_dataflow2(conditions_str, value, tmp_index, if_implicit_dataflow, 
         if op == "==":
             conditions_str = conditions_str + "if (%s == %s) {\n" %(value[0].strip(), value[2].strip())
         elif op == "&&":
-            conditions_str = conditions_str + "if (%s > %s && %s < %s) {\n" %(value[0].strip(), value[2].strip(), value[0].strip(), value[3].strip())
+            conditions_str = conditions_str + "if (%s >= %s && %s < %s) {\n" %(value[0].strip(), value[2].strip(), value[0].strip(), value[3].strip())
         elif op == "strncmp" or op == "memcmp":
             conditions_str = conditions_str + "if (%s(%s, %s, %s) == 0) {\n" %(op, value[0].strip(), value[2].strip(), value[3].strip())
     return  conditions_str, tmp_index
@@ -313,7 +519,7 @@ def _crc(conditions_str, value, val_size, tmp_index, if_crc, config_map):
         if op == "==":
             conditions_str = conditions_str + "if (%s == %s) {\n" %(value[0].strip(), value[2].strip())
         elif op == "&&":
-            conditions_str = conditions_str + "if (%s > %s && %s < %s) {\n" %(value[0].strip(), value[2].strip(), value[0].strip(), value[3].strip())
+            conditions_str = conditions_str + "if (%s >= %s && %s < %s) {\n" %(value[0].strip(), value[2].strip(), value[0].strip(), value[3].strip())
         elif op == "strncmp" or op == "memcmp":
             conditions_str = conditions_str + "if (%s(%s, %s, %s) == 0) {\n" %(op, value[0].strip(), value[2].strip(), value[3].strip())
     return conditions_str, tmp_index
@@ -340,7 +546,7 @@ def gen_testcase(dirname, template_file):
     # gen defs
     defs = ""
     for key in config_map.keys():
-        if key.startswith("@VAR"):
+        if key.startswith("@VAR") or key.startswith("@UTVAR"):
             defs = defs + gen_var_def(key, config_map)
         elif key.startswith("@EXTRA_VARS"):
             defs = defs + config_map[key] + "\n"
@@ -435,7 +641,8 @@ def gen_testcase(dirname, template_file):
                 bug_trigger_space = bug_trigger_space + value[4].strip() + "*"
                 # gen poc
                 int_arr = to_intarray(value[2].strip())
-                int_arr[-1] = int_arr[-1] + 1
+                #int_arr[-1] = int_arr[-1] + 1
+                int_arr[-1] = int_arr[-1]
                 blank = (_end-_start) - len(int_arr)
                 for i in range(0, blank):
                     poc[_start + i] = 0
@@ -508,7 +715,7 @@ def gen_testcase(dirname, template_file):
     with open(src_file, "w") as fp:
         fp.write(src_1)
 
-    if conditions_str_kai and dirname.find("_kai") < 0 and dirname.find("_IDF") < 0 and dirname.find("_CRC") < 0:
+    if conditions_str_kai and dirname.find("_kai") < 0 and dirname.find("_IDF") < 0 and dirname.find("_CRC") < 0 and dirname.find("_NOISE") < 0:
         os.system("cp -r %s %s" %(dirname, dirname_kai))
         os.system("rm %s" %(os.path.join(dirname_kai, dirname.strip("/").split("/")[-1] + ".c")))
         src_kai = src.replace("@INSERTION@", conditions_str_kai)
@@ -536,6 +743,32 @@ def parse_config(config_file):
 #===================================
 # 自定义的样本生成函数，非通用功能 =
 #===================================
+
+def gen_testcases_noise_path(testcase_dir):
+    testcase_dir_lst = []
+    noise_testcase_dir_lst = []
+    for one in os.listdir(testcase_dir):
+        if one == "lib" or one == "include" or one.find("_kai") >= 0:
+            continue
+        testcase_dir_lst.append(os.path.join(testcase_dir, one))
+    for one in testcase_dir_lst:
+        if one.find("_NOISE") >= 0:
+            continue
+        new_dir = one + "_NOISE"
+        struct_file = os.path.join(one, "struct")
+        config_file = os.path.join(one, "config")
+        with open(config_file) as fp:
+            content = fp.read()
+            # 找不到untainted variables，跳过，不生成噪声路径
+            if content.find("@UTVAR") < 0:
+                continue
+        if not os.path.exists(new_dir):
+            os.makedirs(new_dir)
+        os.system("cp %s %s" %(struct_file, new_dir))
+        os.system("cp %s %s" %(config_file, new_dir))
+        noise_testcase_dir_lst.append(new_dir)
+    return noise_testcase_dir_lst
+
 
 # 修改struct文件，给样本增添隐式数据流
 def gen_testcases_hampering_feature(testcase_dir, hampering_feature="IDF1"):
@@ -604,12 +837,9 @@ def gen_testcases_implicit_dataflow2(testcase_dir):
 
 if __name__ == '__main__':
 
-    in_str = 0x12345678.to_bytes(4, byteorder='big')
-    print(crc(in_str, 4))
-
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--config", dest="config", help="input configuration file")
-    parser.add_argument("-g", "--generate", dest="gen", help="[idf1|idf2|crc]:generate implicit dataflow type1|type2")
+    parser.add_argument("-g", "--generate", dest="gen", help="[idf1|idf2|crc|noise]:generate implicit dataflow type1|type2")
     parser.add_argument("-t", "--target", dest="target", help="target directory")
     args = parser.parse_args()
     
@@ -633,6 +863,12 @@ if __name__ == '__main__':
         testcases = gen_testcases_hampering_feature(args.target, hampering_feature="CRC")
         for testcase in testcases:
             gen_testcase(testcase, "template")
+
+    if args.gen == "noise":
+        noise_testcases = gen_testcases_noise_path(args.target)
+        for testcase in noise_testcases:
+            gen_testcase(testcase, "template")
+            gen_noise(testcase)
 
 
     #config_maps_4_4 = gen_config(4, 4)
