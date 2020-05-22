@@ -97,6 +97,7 @@ void bug() {
     memset(src, 'A', 65535);
     memcpy(dst, src, 65535); // potential flaw, 编译的时候需要加上-O0选项
     free(src);
+    printf("%d\n", *(src));
 }
 
 void bug2(unsigned int input, unsigned int lower, unsigned int upper) {
@@ -107,6 +108,8 @@ void bug2(unsigned int input, unsigned int lower, unsigned int upper) {
     memset(src, 'A', 128);
     memcpy(dst, src, 64+input*gaussian(input, lower, upper)); //bug
     free(src);
+    if (gaussian(input, lower, upper) > 0)
+        printf("%d\n", *(src));
 }
 
 void bug3(unsigned int input, unsigned int lower, unsigned int upper) {
