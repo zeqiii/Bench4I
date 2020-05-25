@@ -651,7 +651,7 @@ def gen_testcase(dirname, template_file):
             elif op == "strncmp" or op == "memcmp":
                 if implicit_dataflow2:
                     conditions_str, tmp_index = _implicit_dataflow2(conditions_str, value, tmp_index, implicit_dataflow2, config_map)
-                if crc:
+                elif crc:
                     conditions_str, tmp_index = _crc(conditions_str, value, _size, tmp_index, crc, config_map)
                 else:
                     conditions_str, tmp_index = _implicit_dataflow1(conditions_str, value, tmp_index, implicit_dataflow1)
@@ -845,9 +845,12 @@ if __name__ == '__main__':
     
     if args.config:
         config_map = parse_config(args.config)
+        basename = os.path.basename(args.config)
+        os.system("cp %s %s" %(args.config, basename))
         testcases_dir = gen_struct(config_map)
         for testcase in testcases_dir:
             gen_testcase(testcase, "template")
+        os.system("rm %s" %(basename))
 
     if args.gen == "idf1":
         idf_testcases = gen_testcases_hampering_feature(args.target, hampering_feature="IDF1")
@@ -869,31 +872,3 @@ if __name__ == '__main__':
         for testcase in noise_testcases:
             gen_testcase(testcase, "template")
             gen_noise(testcase)
-
-
-    #config_maps_4_4 = gen_config(4, 4)
-    #config_maps_8_4 = gen_config(8, 4)
-    #config_maps_8_8 = gen_config(8, 8)
-    #config_maps_16_4 = gen_config(16, 4)
-    #config_maps_16_8 = gen_config(16, 8)
-    #config_maps_16_16 = gen_config(16, 16)
-    #config_maps_32_16 = gen_config(32, 16)
-
-    #for config_map in config_maps_32_16:
-    #    gen_struct(config_map)
-    #for config_map in config_maps_4_4:
-    #    gen_struct(config_map)
-    #for config_map in config_maps_8_4:
-    #    gen_struct(config_map)
-    #for config_map in config_maps_8_8:
-    #    gen_struct(config_map)
-    #for config_map in config_maps_16_4:
-    #    gen_struct(config_map)
-    #for config_map in config_maps_16_8:
-    #    gen_struct(config_map)
-    #for config_map in config_maps_16_16:
-    #    gen_struct(config_map)
-
-    #print("start gen testcases")
-    #for testcase in os.listdir(testcase_dir):
-    #    gen_testcase(os.path.join(testcase_dir, testcase), "template")
