@@ -6,8 +6,8 @@
 #include<fcntl.h>
 #include <unistd.h>
 #include <math.h>
-#include "ebench.h"
 
+// record execution trace
 //// section of functional functions
 
 unsigned int read_unsigned_int16(unsigned char *input) {
@@ -24,6 +24,39 @@ unsigned int read_unsigned_int32(unsigned char *input) {
     uint32 = uint32 | input[2] << 8;
     uint32 = uint32 | input[3];
     return uint32;
+}
+
+unsigned int read_int(unsigned char *input, int size) {
+    unsigned int result = 0;
+    for (int i=0; i<size; i++)
+        result = (result<<(8)) | input[i];
+    return result;
+}
+
+unsigned char* int2byte(unsigned int input, unsigned int len) {
+    unsigned char* a = (unsigned char*)malloc(len*sizeof(unsigned char));
+    for(int i=0; i<len; i++) {
+        *(a+len-i-1) = (input>>(i*8)) & 0xFF;
+    }
+    return a;
+}
+
+unsigned long crc(unsigned char* test, unsigned int len) {
+    unsigned long temp = 0;
+    unsigned int crc;
+    unsigned char i;
+    unsigned char *ptr = test;
+    while( len-- ) {
+        for(i = 0x80; i != 0; i = i >> 1) {
+            temp = temp * 2;
+            if((temp & 0x10000) != 0)
+                temp = temp ^ 0x11021;
+            if((*ptr & i) != 0)
+                temp = temp ^ (0x10000 ^ 0x11021);
+        }
+        ptr++;
+    }
+    return temp;
 }
 
 // when input is in (lower, upper), return 1, else return 0
@@ -52,16 +85,6 @@ int ncmp(unsigned char* a, unsigned char* b, unsigned int n) {
     return 0;
 }
 
-// implicit dataflow pattern 1
-int implicit_dataflow1(unsigned char* input, unsigned int len) {
-    int ret, i;
-    ret = 0;
-    for (i = 0; i < len; i++) {
-        if (input[i] == @KEY_BYTE@)
-            ret = ret + 1
-    return ret;
-}
-
 //// section of functional functions
 
 
@@ -73,8 +96,9 @@ void bug() {
     char dst[64];
     char* src = (char*)malloc(65535*sizeof(char));
     memset(src, 'A', 65535);
-    memcpy(dst, src, 65535); // potential flaw, 编译的时候需要加上-O0选项
+    memcpy(dst, src, 65535); // potential flaw, overflow
     free(src);
+    printf("%d\n", *(src)); // potential flaw, UAF
 }
 
 void bug2(unsigned int input, unsigned int lower, unsigned int upper) {
@@ -83,8 +107,10 @@ void bug2(unsigned int input, unsigned int lower, unsigned int upper) {
     char dst[64];
     char* src = (char*)malloc(128*sizeof(char));
     memset(src, 'A', 128);
-    memcpy(dst, src, 64+input*gaussian(input, lower, upper)); //bug
+    memcpy(dst, src, 64+input*gaussian(input, lower, upper)); // potential flaw, overflow
     free(src);
+    if (gaussian(input, lower, upper) > 0)
+        printf("%d\n", *(src)); // potential flaw, UAF
 }
 
 void bug3(unsigned int input, unsigned int lower, unsigned int upper) {
@@ -111,17 +137,24 @@ void bug3(unsigned int input, unsigned int lower, unsigned int upper) {
 int main(int argc, char **argv) {
 
     //// common header
+    FILE *fp;
+    if ((fp = fopen("/dev/shm/@TRACE_FILE@", "a+")) == NULL)
+        exit(0);
+
     unsigned char input[@INPUT_SIZE@];
     int i, fd, size, tmp;
+    int temp=0, temp2=0, ch=0; // used for implicit dataflow
     struct stat s;
     if ((fd = open(argv[1], O_RDONLY)) == -1) {
-        printf("Failed to open file!\n");
+        fputs("Failed to open file!\n", fp);
         exit(0);
     }
     fstat(fd, &s);
     size = s.st_size;
-    if (size < @INPUT_SIZE@)
+    if (size < @INPUT_SIZE@) {
+        fputs("Input size invalid!\n", fp);
         return -1;
+    }
     read(fd, input, @INPUT_SIZE@);
     //// common header
 
@@ -132,6 +165,8 @@ int main(int argc, char **argv) {
     //// section of insertion
     @INSERTION@
     //// section of insertion
+    fputs("\n", fp);
+    fclose(fp);
 }
 
 //// section of main function
