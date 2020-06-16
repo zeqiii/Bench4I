@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import random
+import random, string
 
 def pp(res):
     content = []
@@ -33,11 +33,58 @@ def break_int(value):
     return result2
 
 
-# [[(start_index1, len1), (start_index2, len2), ...], [(start_indexN, lenN), ,...], ...]
-def gen_var_range(input_size, tainted_size):
+def gen_untainted_var_range(tainted_var_range, input_size):
+    white_list = [1, 4]
+    tainted_var_range_map = {}
+    start_lst = []
+    for one in tainted_var_range:
+        start, length = one
+        tainted_var_range_map[start] = length
+        start_lst.append(start)
+    start_lst.sort()
+
+    p = 0 #指针
+    final_result = []
+    for start in start_lst:
+        if (start - p) > 0:
+            untainted_size = start - p
+            results = gen_var_range(untainted_size, untainted_size, white_list=[1, 4], untainted=True)
+            # 返回变量数最少的结果
+            minor_result = None
+            min_len = 100000
+            for result in results:
+                if len(result) < min_len:
+                    minor_result = result
+                    min_len = len(result)
+            if minor_result:
+                for i in range(0, len(minor_result)):
+                    s, l = minor_result[i]
+                    minor_result[i] = (s + p, l)
+                final_result.extend(minor_result)
+        p = start + tainted_var_range_map[start]
+    untainted_size = input_size - p
+    if untainted_size > 0:
+        results = gen_var_range(untainted_size, untainted_size, white_list=[1, 4], untainted=True)
+        minor_result = None
+        min_len = 100000
+        for result in results:
+            if len(result) < min_len:
+                minor_result = result
+                min_len = len(result)
+        if minor_result:
+            for i in range(0, len(minor_result)):
+                start, length = minor_result[i]
+                minor_result[i] = (start + p, length)
+            final_result.extend(minor_result)
+    return final_result
+
+
+
+def gen_var_range(input_size, tainted_size, white_list=[], untainted=False):
     num_series = break_int(tainted_size)
     results = []
-    white_list = [1, 4, 8, 16, 32, 64]
+    if not white_list:
+        white_list = [1, 4, 8]
 
     for series in num_series:
         remained_space = input_size
@@ -58,7 +105,16 @@ def gen_var_range(input_size, tainted_size):
         if ok:
             results.append(tainted_bytes)
 
-    return results
+    if not untainted:
+        final_results = []
+        for result in results:
+            result2 = gen_untainted_var_range(result, input_size)
+            final_results.append((result, result2))
+        # [ (tainted_var_range1, untainted_var_range1), (tainted_var_range2, untainted_var_range2), ... ]
+        return final_results
+    else:
+        # list of tainted_var_range, e.g., [[(start_index1, len1), (start_index2, len2), ...], [(start_indexN, lenN), ,...], ...]
+        return results
 
 
 # (op1, ==, op2, range)  range=1
@@ -73,6 +129,9 @@ def gen_conditions(var_maps):
     i = 0
     j = 0
     for key in var_maps.keys():
+        # 跳过非污点变量, UT=untainted
+        if key.find("UTVAR") >= 0:
+            continue
         i = i + 1
         content = var_maps[key]
         parts = content.split("@=")[-1].strip("(").strip(")").split(",")
@@ -128,14 +187,14 @@ def gen_conditions(var_maps):
 
 def gen_config(input_size, tainted_size):
     config_maps = []
-    results = gen_var_range(input_size, tainted_size)
-    for result in results:
+    ranges = gen_var_range(input_size, tainted_size)
+    for tainted_range, untainted_range in ranges:
         i = 0
         var_map = {}
         config_map = {}
         config_map["@INPUT_SIZE@"] = input_size
         config_map["@TAINTED_SIZE@"] = tainted_size
-        for one in result:
+        for one in tainted_range:
             i = i + 1
             start, length = one
             _type = ""
@@ -147,6 +206,20 @@ def gen_config(input_size, tainted_size):
                 _type = "unsigned char*"
             content = "(%s, VAR%d, %d-%d)" %(_type, i, start, start+length)
             var_map["@VAR%d@"%(i)] = content
+        condition_map, extra_vars = gen_conditions(var_map)
+        j = 0
+        for one in untainted_range:
+            j = j + 1
+            start, length = one
+            _type = ""
+            if length == 1:
+                _type = "unsigned char"
+            elif length == 2 or length == 4:
+                _type = "unsigned int"
+            else:
+                _type = "unsigned char*"
+            content = "(%s, UTVAR%d, %d-%d)" %(_type, j, start, start+length)
+            var_map["@UTVAR%d@"%(j)] = content
         condition_map, extra_vars = gen_conditions(var_map)
         config_map = dict(config_map, ** var_map)
         config_map = dict(config_map, ** condition_map)
@@ -170,4 +243,10 @@ def gen_config(input_size, tainted_size):
 
 
 if __name__ == "__main__":
-    config_maps_4_4 = gen_config(4, 4)
+    #config_maps_4_4 = gen_config(4, 4)
+    #config_maps_8_4 = gen_config(8, 4)
+    #config_maps_8_8 = gen_config(8, 8)
+    #config_maps_12_4 = gen_config(12, 4)
+    #config_maps_16_8 = gen_config(16, 8)
+    #config_maps_16_4 = gen_config(16, 4)
+    config_maps_32_1 = gen_config(32, 1)

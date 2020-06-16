@@ -69,7 +69,7 @@ class Config():
 
 
 # 父类
-class Template():
+class Stmt():
     # 例如 @NOISE:UTVAR4@=(UTVAR4, &&, 242, 244, 0x1)
     # key为@NOISE:UTVAR4@
     # value为(UTVAR4, &&, 242, 244, 0x1)
@@ -98,7 +98,7 @@ class Template():
         return ""
 
 # 子类1 Var 代表变量定义
-class Var(Template):
+class Var(Stmt):
     TYPE_UNSIGNED_CHAR = "unsigned char"
     TYPE_UNSIGNED_CHAR_P = "unsigned char*"
     TYPE_CHAR = "char"
@@ -136,7 +136,7 @@ class Var(Template):
 
 
 # 子类2 Condition 代表if条件语句
-class Condition(Template):
+class Condition(Stmt):
 
     def __init__(self, config_file):
         Template.__init__(self, config_file)
@@ -232,6 +232,7 @@ def to_intarray(hex_str):
     return arr
 
 
+# 根据config文件中的条件语句，生成代码路径
 def _gen_path(conditions):
     if len(conditions.keys()) <= 1:
         result_paths = []
@@ -340,6 +341,8 @@ def __gen_noise_code(noise_cond_map, config_map):
     return src
 
 
+MAX_PATH = 10000
+
 def __gen_noise_from_config(config_map):
     config = Config(config_map=config_map)
     utvs = config.get_vars(UTVAR=True)
@@ -352,8 +355,8 @@ def __gen_noise_from_config(config_map):
         # 如果是数字类型的（暂时限定为整型），则它的取值范围是...
         _max = pow(2, v.bytes*8)-1
         step = 0
-        if _max > 100:
-            step = int(_max/100)
+        if _max > MAX_PATH:
+            step = int(_max/MAX_PATH)
         else:
             step = -1
         op = "=="
@@ -710,7 +713,8 @@ def gen_testcase(dirname, template_file):
     # gen Makefile
     os.system("cp Makefile %s" %(dirname))
 
-    src_1 = src.replace("@INSERTION@", conditions_str)
+    src = src.replace("@TRACE_FILE@", os.path.basename(dirname).strip()) # trace file
+    src_1 = src.replace("@INSERTION@", conditions_str) # condition src code
     src_file = os.path.join(dirname, dirname.strip("/").split("/")[-1] + ".c")
     with open(src_file, "w") as fp:
         fp.write(src_1)
