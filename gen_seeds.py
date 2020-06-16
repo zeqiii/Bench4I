@@ -25,6 +25,10 @@ def gen_seeds(testcase_dir):
             fp.write(bytearray(arr))
         e = e + 0x22
 
+def gen_seeds_testset(testset_dir):
+    for one in os.listdir(testset_dir):
+        gen_seeds(os.path.join(testset_dir, one))
+
 
 if __name__ == "__main__":
-    gen_seeds(sys.argv[1])
+    gen_seeds_testset(sys.argv[1])
