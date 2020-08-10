@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+
+# log trace
 import os, sys, random, string
 import numpy as np
 import argparse
@@ -411,6 +413,12 @@ def add_hampering_feature(config_file, struct_file, hampering_feature="IDF1", in
             if line.startswith("@CONDITION"):
                 if config_map[line].split(',')[1].strip() == "&&" or config_map[line].find("memcmp") >= 0:
                     continue
+        if hampering_feature == "gaussian":
+            #排除条件是strncmp和memcmp的
+            line = lines[i].strip().split('$')[0].strip()
+            if line.startswith("@CONDITION"):
+                if config_map[line].find("strncmp") >= 0 or config_map[line].find("memcmp") >= 0:
+                    continue
         if lines[i].startswith("@CONDITION") and lines[i].find("$NOISE$") < 0:
             cond_linenums.append(i)
 
@@ -431,6 +439,8 @@ def add_hampering_feature(config_file, struct_file, hampering_feature="IDF1", in
             lines[linenum] = line + "$IMPLICIT_DATAFLOW2$"
         elif hampering_feature == "CRC":
             lines[linenum] = line + "$CRC$"
+        elif  hampering_feature == "gaussian":
+            lines[linenum] = line + "$GAUSSIAN$"
     content = ""
     for line in lines:
         content = content + line + "\n"
@@ -524,6 +534,28 @@ def _crc(conditions_str, key, value, val_size, tmp_index, if_crc, config_map):
             conditions_str = conditions_str + "if (%s(%s, %s, %s) == 0) {\nfputs(\"%s##\", fp);\n" %(op, value[0].strip(), value[2].strip(), value[3].strip(), key)
     return conditions_str, tmp_index
 
+def _gaussian(conditions_str, key, value, val_size, tmp_index, if_gaussian, config_map):
+    var_name = value[0];
+    op = value[1].strip()
+    if if_gaussian:
+        bytes_num = 0
+        if op == "==":
+            lower = int(value[2].strip(), 16) - 1
+            upper = lower + 2
+            conditions_str = conditions_str + "if (gaussian(%s, %s, %s) > 0) {\nfputs(\"%s##\", fp);\n" %(value[0].strip(), hex(lower), hex(upper), key)
+        elif op == "&&":
+            lower = int(value[2].strip(), 16)
+            upper = int(value[3].strip(), 16)
+            conditions_str = conditions_str + "if (gaussian(%s, %s, %s) > 0) {\nfputs(\"%s##\", fp);\n" %(value[0].strip(), hex(lower), hex(upper), key)
+    else:
+        if op == "==":
+            conditions_str = conditions_str + "if (%s == %s) {\nfputs(\"%s##\", fp);\n" %(value[0].strip(), value[2].strip(), key)
+        elif op == "&&":
+            conditions_str = conditions_str + "if (%s >= %s && %s < %s) {\nfputs(\"%s##\", fp);\n" %(value[0].strip(), value[2].strip(), value[0].strip(), value[3].strip(), key)
+        elif op == "strncmp" or op == "memcmp":
+            conditions_str = conditions_str + "if (%s(%s, %s, %s) == 0) {\nfputs(\"%s##\", fp);\n" %(op, value[0].strip(), value[2].strip(), value[3].strip(), key)
+    return conditions_str, tmp_index
+
 
 def gen_testcase(dirname, template_file):
     config_file = os.path.join(dirname, "config")
@@ -569,11 +601,12 @@ def gen_testcase(dirname, template_file):
         implicit_dataflow1 = False #是否使用隐式数据流，类型1
         implicit_dataflow2 = False #是否使用隐式数据流，类型2
         crc = False # 是否使用crc对抗符号执行
+        gaussian = False # 是否使用高斯函数对抗符号执行
         line = content[line_num].strip()
         if line.startswith("#"):
             continue
         elif line.startswith("@BUG@"):
-            conditions_str = conditions_str + "fputs(\"\\n\", fp);fclose(fp);\nbug();\n"
+            conditions_str = conditions_str + "fputs(\"\\n\", fp);\nfclose(fp);\nfp = NULL;\nbug();\n"
             bug_seen = True
         elif line.startswith("@CONDITION"):
             if content[line_num+1].strip().startswith("@BUG@"):
@@ -586,6 +619,8 @@ def gen_testcase(dirname, template_file):
                 implicit_dataflow2 = True
             elif line.find("$CRC$") >= 0:
                 crc = True
+            elif line.find("$GAUSSIAN$") >= 0:
+                gaussian = True
 
             if not bug_seen:
                 bug_related_constraints_num += 1
@@ -608,11 +643,13 @@ def gen_testcase(dirname, template_file):
                     lower = value[2].strip()
                     lower = int(lower, 16) - 1
                     upper = lower + 2
-                    conditions_str_kai = conditions_str + "fputs(\"\\n\", fp);\nfclose(fp);\nbug2(%s, %d, %d);\n"%(value[0].strip(), lower, upper)
+                    conditions_str_kai = conditions_str + "fputs(\"\\n\", fp);\nfclose(fp);\nfp = NULL;\nbug2(%s, %d, %d);\n"%(value[0].strip(), lower, upper)
                 if implicit_dataflow2:
                     conditions_str, tmp_index = _implicit_dataflow2(conditions_str, line.strip(), value, tmp_index, implicit_dataflow2, config_map)
                 elif crc:
                     conditions_str, tmp_index = _crc(conditions_str, line.strip(), value, _size, tmp_index, crc, config_map)
+                elif gaussian:
+                    conditions_str, tmp_index = _gaussian(conditions_str, line.strip(), value, _size, tmp_index, gaussian, config_map)
                 else:
                     conditions_str, tmp_index = _implicit_dataflow1(conditions_str, line.strip(), value, tmp_index, implicit_dataflow1)
                 conditions_str = conditions_str + "//@NOISE@\n"
@@ -630,10 +667,12 @@ def gen_testcase(dirname, template_file):
                     lower = int(lower, 16)
                     upper = value[3].strip()
                     upper = int(upper, 16)
-                    conditions_str_kai = conditions_str + "fputs(\"\\n\", fp);\nfclose(fp);\nbug2(%s, %d, %d);\n"%(value[0].strip(), lower, upper)
+                    conditions_str_kai = conditions_str + "fputs(\"\\n\", fp);\nfclose(fp);\nfp = NULL;\nbug2(%s, %d, %d);\n"%(value[0].strip(), lower, upper)
 
                 if implicit_dataflow2:
                     conditions_str, tmp_index = _implicit_dataflow2(conditions_str, line.strip(), value, tmp_index, implicit_dataflow2, config_map)
+                elif gaussian:
+                    conditions_str, tmp_index = _gaussian(conditions_str, line.strip(), value, _size, tmp_index, gaussian, config_map)
                 else:
                     conditions_str, tmp_index = _implicit_dataflow1(conditions_str, line.strip(), value, tmp_index, implicit_dataflow1)
 
@@ -716,7 +755,7 @@ def gen_testcase(dirname, template_file):
     with open(src_file, "w") as fp:
         fp.write(src_1)
 
-    if conditions_str_kai and dirname.find("_kai") < 0 and dirname.find("_IDF") < 0 and dirname.find("_CRC") < 0 and dirname.find("_NOISE") < 0:
+    if conditions_str_kai and dirname.find("kai") < 0 and dirname.find("IDF") < 0 and dirname.find("CRC") < 0 and dirname.find("NOISE") < 0 and dirname.find("gaussian") < 0:
         os.system("cp -r %s %s" %(dirname, dirname_kai))
         os.system("rm %s" %(os.path.join(dirname_kai, dirname.strip("/").split("/")[-1] + ".c")))
         src_kai = src.replace("@INSERTION@", conditions_str_kai)
@@ -781,13 +820,15 @@ def gen_testcases_hampering_feature(testcase_dir, hampering_feature="IDF1"):
         testcase_dir_lst.append(os.path.join(testcase_dir, one))
     for one in testcase_dir_lst:
         # 跳过已经包含隐式数据流/CRC的样本
-        if one.find("_IDF") >= 0 or one.find("CRC") >= 0:
+        if one.find("IDF") >= 0 or one.find("CRC") >= 0 or one.find("gaussian") >= 0:
             continue
         # copy config and struct
         if hampering_feature == "IDF1":
             new_dir = one + "_IDF1"
         elif hampering_feature == "CRC":
             new_dir = one + "_CRC"
+        elif hampering_feature == "gaussian":
+            new_dir = one + "_gaussian"
         struct_file = os.path.join(one, "struct")
         config_file = os.path.join(one, "config")
         if not os.path.exists(new_dir):
@@ -798,6 +839,8 @@ def gen_testcases_hampering_feature(testcase_dir, hampering_feature="IDF1"):
             content = add_hampering_feature(config_file, struct_file, hampering_feature="IDF1", inum=1)
         elif hampering_feature == "CRC":
             content = add_hampering_feature(config_file, struct_file, hampering_feature="CRC", inum=1)
+        elif hampering_feature == "gaussian":
+            content = add_hampering_feature(config_file, struct_file, hampering_feature="gaussian", inum=1)
         if not content:
             # 无法生成带有妨碍特征的struct，删除文件夹，然后处理下一个
             os.system("rm -rf %s" %(new_dir))
@@ -840,9 +883,13 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--config", dest="config", help="input configuration file")
-    parser.add_argument("-g", "--generate", dest="gen", help="[idf1|idf2|crc|noise]:generate implicit dataflow type1|type2")
+    parser.add_argument("-g", "--generate", dest="gen", help="[idf1|idf2|crc|noise|gaussian]")
     parser.add_argument("-t", "--target", dest="target", help="target directory")
+    parser.add_argument("-dt", "--directtarget", dest="directtarget", help="target testcase directory")
     args = parser.parse_args()
+
+    if args.directtarget:
+        gen_testcase(args.directtarget, "template2")
     
     if args.config:
         config_map = parse_config(args.config)
@@ -865,6 +912,11 @@ if __name__ == '__main__':
 
     if args.gen == "crc":
         testcases = gen_testcases_hampering_feature(args.target, hampering_feature="CRC")
+        for testcase in testcases:
+            gen_testcase(testcase, "template2")
+
+    if args.gen == "gaussian":
+        testcases = gen_testcases_hampering_feature(args.target, hampering_feature="gaussian")
         for testcase in testcases:
             gen_testcase(testcase, "template2")
 

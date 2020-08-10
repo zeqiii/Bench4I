@@ -165,8 +165,10 @@ int main(int argc, char **argv) {
     //// section of insertion
     @INSERTION@
     //// section of insertion
-    fputs("\n", fp);
-    fclose(fp);
+    if (fp != NULL) {
+        fputs("\n", fp);
+        fclose(fp);
+    }
 }
 
 //// section of main function

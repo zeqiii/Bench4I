@@ -123,7 +123,6 @@ def gen_var_range(input_size, tainted_size, white_list=[], untainted=False):
 # (op1, &&, op2, op3, range) which is (op1>op2 && op1<op3)  range=op2~op3
 # (op1, strncmp, op2, n, range) which is (strncmp(op1, op2, n) == 0) range=1
 # (op1, memcmp, op2, n, range) which is (memcmp(op1, op2, n) == 0) range=1
-CONST_STR = "qbAnqbAnqbAnqbAnqbAnqbAnqbAnqbAnqbAnqbAnqbAnqbAnqbAnqbAnqbAnqbAnqbAnqbAnqbAnqbAnqbAnqbAn"
 def gen_conditions(var_maps):
     condition_maps = {}
     extra_vars = {}  # 存放一些常量定义
@@ -140,50 +139,42 @@ def gen_conditions(var_maps):
         _name = parts[1].strip()
         _range = int(parts[2].strip().split("-")[1]) - int(parts[2].strip().split("-")[0])
         if _range == 1:
-            #rand = int(random.random() * 128)
-            rand = 0x71
+            rand = int(random.random() * 128)
             content1 = "(%s, %s, %s, %s)" %(_name, "==", hex(rand), hex(1))
             condition_maps["@CONDITION%d:%s@"%(i, key.strip('@'))] = content1
         elif _range == 2:
-            #rand = int(random.random() * 0x10000)
-            rand = 0x7162
+            rand = int(random.random() * 0x10000)
             content1 = "(%s, %s, %s, %s)" %(_name, "==", hex(rand), hex(1))
             condition_maps["@CONDITION%d:%s@"%(i, key.strip('@'))] = content1
             i = i + 1
-            #rand = int(random.random() * (0x10000-0x1000))
+            rand = int(random.random() * (0x10000-0x1000))
             content2 = "(%s, %s, %s, %s, %s)" %(_name, "&&", hex(rand), hex(rand+0x1000), "0x1000")
             condition_maps["@CONDITION%d:%s@"%(i, key.strip('@'))] = content2
         elif _range == 4:
-            #rand = int(random.random() * 0x100000000)
-            rand = 0x7162416e
+            rand = int(random.random() * 0x100000000)
             content1 = "(%s, %s, %s, %s)" %(_name, "==", hex(rand), hex(1))
             condition_maps["@CONDITION%d:%s@"%(i, key.strip('@'))] = content1
             i = i + 1
-            #rand = int(random.random() * (0x100000000-0x1000))
+            rand = int(random.random() * (0x100000000-0x1000))
             content2 = "(%s, %s, %s, %s, %s)" %(_name, "&&", hex(rand), hex(rand+0x1000), "0x1000")
             condition_maps["@CONDITION%d:%s@"%(i, key.strip('@'))] = content2
             i = i + 1
-            #rand = int(random.random() * (0x100000000-0x100000))
+            rand = int(random.random() * (0x100000000-0x100000))
             content3 = "(%s, %s, %s, %s, %s)" %(_name, "&&", hex(rand), hex(rand+0x100000), "0x100000")
             condition_maps["@CONDITION%d:%s@"%(i, key.strip('@'))] = content3
             i = i + 1
-            #rand = int(random.random() * (0x100000000-0x10000000))
+            rand = int(random.random() * (0x100000000-0x10000000))
             content4 = "(%s, %s, %s, %s, %s)" %(_name, "&&", hex(rand), hex(rand+0x10000000), "0x10000000")
             condition_maps["@CONDITION%d:%s@"%(i, key.strip('@'))] = content4
         else:
-            #rand_str = ''.join(random.sample(string.ascii_letters + string.digits, _range))
-            rand_str = CONST_STR[:_range]
+            rand_str = ''.join(random.sample(string.ascii_letters + string.digits, _range))
             content1 = "(%s, %s, %s, %d, %s)" %(_name, "strncmp", "\""+rand_str+"\"", _range, hex(1))
             condition_maps["@CONDITION%d:%s@"%(i, key.strip('@'))] = content1
             i = i + 1
             j = j + 1
             rand_bytes_decl = "unsigned char rand_bytes%d[]={" %(j)
-            #for k in range(0, _range):
-            #    rand_bytes_decl = rand_bytes_decl + hex(int(random.random()*128)) + ","
-            arr = [0x71, 0x62, 0x41, 0x6e]
             for k in range(0, _range):
-                kk = k % 4;
-                rand_bytes_decl = rand_bytes_decl + hex(arr[kk]) + ","
+                rand_bytes_decl = rand_bytes_decl + hex(int(random.random()*128)) + ","
             rand_bytes_decl = rand_bytes_decl[:-1]
             rand_bytes_decl = rand_bytes_decl + "};"
             extra_vars["@EXTRA_VARS%d@"%(j)] = rand_bytes_decl
@@ -252,10 +243,10 @@ def gen_config(input_size, tainted_size):
 
 
 if __name__ == "__main__":
-    config_maps_4_4 = gen_config(4, 4)
-    config_maps_8_4 = gen_config(8, 4)
-    config_maps_8_8 = gen_config(8, 8)
-    config_maps_12_4 = gen_config(12, 4)
-    config_maps_16_8 = gen_config(16, 8)
-    config_maps_16_4 = gen_config(16, 4)
-    config_maps_16_16 = gen_config(16, 16)
+    #config_maps_4_4 = gen_config(4, 4)
+    #config_maps_8_4 = gen_config(8, 4)
+    #config_maps_8_8 = gen_config(8, 8)
+    #config_maps_12_4 = gen_config(12, 4)
+    #config_maps_16_8 = gen_config(16, 8)
+    #config_maps_16_4 = gen_config(16, 4)
+    config_maps_16_16 = gen_config(16,16)
