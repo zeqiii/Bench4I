@@ -1,9 +1,9 @@
 # Bench4I
 Code generator that constructs benchmarks for interpretable evaluation of fuzz testing.
+`Bench4I` is a benchmark that constructed by this code generator.
 
 # Introduction
 `template2` is a code template for generating C code.
-`Bench4I` is a pre-generated benchmark.
 `Makefile` is a universal Makefile for all generated target programs.
 
 # Generating target programs
