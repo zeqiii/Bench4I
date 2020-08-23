@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+
+# log trace
 import os, sys, random, string
 import numpy as np
 import argparse
@@ -69,7 +71,7 @@ class Config():
 
 
 # 父类
-class Stmt():
+class Template():
     # 例如 @NOISE:UTVAR4@=(UTVAR4, &&, 242, 244, 0x1)
     # key为@NOISE:UTVAR4@
     # value为(UTVAR4, &&, 242, 244, 0x1)
@@ -98,7 +100,7 @@ class Stmt():
         return ""
 
 # 子类1 Var 代表变量定义
-class Var(Stmt):
+class Var(Template):
     TYPE_UNSIGNED_CHAR = "unsigned char"
     TYPE_UNSIGNED_CHAR_P = "unsigned char*"
     TYPE_CHAR = "char"
@@ -136,7 +138,7 @@ class Var(Stmt):
 
 
 # 子类2 Condition 代表if条件语句
-class Condition(Stmt):
+class Condition(Template):
 
     def __init__(self, config_file):
         Template.__init__(self, config_file)
@@ -232,7 +234,6 @@ def to_intarray(hex_str):
     return arr
 
 
-# 根据config文件中的条件语句，生成代码路径
 def _gen_path(conditions):
     if len(conditions.keys()) <= 1:
         result_paths = []
@@ -341,8 +342,6 @@ def __gen_noise_code(noise_cond_map, config_map):
     return src
 
 
-MAX_PATH = 10000
-
 def __gen_noise_from_config(config_map):
     config = Config(config_map=config_map)
     utvs = config.get_vars(UTVAR=True)
@@ -355,8 +354,8 @@ def __gen_noise_from_config(config_map):
         # 如果是数字类型的（暂时限定为整型），则它的取值范围是...
         _max = pow(2, v.bytes*8)-1
         step = 0
-        if _max > MAX_PATH:
-            step = int(_max/MAX_PATH)
+        if _max > 100:
+            step = int(_max/100)
         else:
             step = -1
         op = "=="
@@ -414,6 +413,12 @@ def add_hampering_feature(config_file, struct_file, hampering_feature="IDF1", in
             if line.startswith("@CONDITION"):
                 if config_map[line].split(',')[1].strip() == "&&" or config_map[line].find("memcmp") >= 0:
                     continue
+        if hampering_feature == "gaussian":
+            #排除条件是strncmp和memcmp的
+            line = lines[i].strip().split('$')[0].strip()
+            if line.startswith("@CONDITION"):
+                if config_map[line].find("strncmp") >= 0 or config_map[line].find("memcmp") >= 0:
+                    continue
         if lines[i].startswith("@CONDITION") and lines[i].find("$NOISE$") < 0:
             cond_linenums.append(i)
 
@@ -434,13 +439,15 @@ def add_hampering_feature(config_file, struct_file, hampering_feature="IDF1", in
             lines[linenum] = line + "$IMPLICIT_DATAFLOW2$"
         elif hampering_feature == "CRC":
             lines[linenum] = line + "$CRC$"
+        elif  hampering_feature == "gaussian":
+            lines[linenum] = line + "$GAUSSIAN$"
     content = ""
     for line in lines:
         content = content + line + "\n"
     return content
 
 
-def _implicit_dataflow1(conditions_str, value, tmp_index, if_implicit_dataflow):
+def _implicit_dataflow1(conditions_str, key, value, tmp_index, if_implicit_dataflow):
     op = value[1].strip()
     if if_implicit_dataflow:
         conditions_str = conditions_str + "int tmp%d = 0;\n" %(tmp_index)
@@ -451,15 +458,15 @@ def _implicit_dataflow1(conditions_str, value, tmp_index, if_implicit_dataflow):
         elif op == "strncmp" or op == "memcmp":
             conditions_str = conditions_str + "if (%s(%s, %s, %s) == 0)\n" %(op, value[0].strip(), value[2].strip(), value[3].strip())
         conditions_str = conditions_str + "tmp%d = 1;\n" %(tmp_index)
-        conditions_str = conditions_str + "if (tmp%d == 1) {\n" %(tmp_index)
+        conditions_str = conditions_str + "if (tmp%d == 1) {\nfputs(\"%s##\", fp);\n" %(tmp_index, key)
         tmp_index = tmp_index + 1
     else:
         if op == "==":
-            conditions_str = conditions_str + "if (%s == %s) {\n" %(value[0].strip(), value[2].strip())
+            conditions_str = conditions_str + "if (%s == %s) {\nfputs(\"%s##\", fp);\n" %(value[0].strip(), value[2].strip(), key)
         elif op == "&&":
-            conditions_str = conditions_str + "if (%s >= %s && %s < %s) {\n" %(value[0].strip(), value[2].strip(), value[0].strip(), value[3].strip())
+            conditions_str = conditions_str + "if (%s >= %s && %s < %s) {\nfputs(\"%s##\", fp);\n" %(value[0].strip(), value[2].strip(), value[0].strip(), value[3].strip(), key)
         elif op == "strncmp" or op == "memcmp":
-            conditions_str = conditions_str + "if (%s(%s, %s, %s) == 0) {\n" %(op, value[0].strip(), value[2].strip(), value[3].strip())
+            conditions_str = conditions_str + "if (%s(%s, %s, %s) == 0) {\nfputs(\"%s##\", fp);\n" %(op, value[0].strip(), value[2].strip(), value[3].strip(), key)
     return conditions_str, tmp_index
 
 def __gen_src_implicit_dataflow2(var_name, tmp_index, config_map):
@@ -482,29 +489,29 @@ def __gen_src_implicit_dataflow2(var_name, tmp_index, config_map):
         src = src + "cc%d[i] = ch;\n}\n" %(tmp_index)
     return src
 
-def _implicit_dataflow2(conditions_str, value, tmp_index, if_implicit_dataflow, config_map):
+def _implicit_dataflow2(conditions_str, key, value, tmp_index, if_implicit_dataflow, config_map):
     var_name = value[0];
     op = value[1].strip()
     if if_implicit_dataflow:
         src = __gen_src_implicit_dataflow2(var_name, tmp_index, config_map)
         conditions_str = conditions_str + src
         if op == "==":
-            conditions_str = conditions_str + "if (ch == %s) {\n" %(value[2].strip())
+            conditions_str = conditions_str + "if (ch == %s) {\nfputs(\"%s##\", fp);\n" %(value[2].strip(), key)
         elif op == "&&":
-            conditions_str = conditions_str + "if (ch >= %s && ch < %s) {\n" %(value[2].strip(), value[3].strip())
+            conditions_str = conditions_str + "if (ch >= %s && ch < %s) {\nfputs(\"%s##\", fp);\n" %(value[2].strip(), value[3].strip(), key)
         elif op == "strncmp" or op == "memcmp":
-            conditions_str = conditions_str + "if (%s(cc%d, %s, %s) == 0) {\n" %(op, tmp_index, value[2].strip(), value[3].strip())
+            conditions_str = conditions_str + "if (%s(cc%d, %s, %s) == 0) {\nfputs(\"%s##\", fp);\n" %(op, tmp_index, value[2].strip(), value[3].strip(), key)
         tmp_index = tmp_index + 1
     else:
         if op == "==":
-            conditions_str = conditions_str + "if (%s == %s) {\n" %(value[0].strip(), value[2].strip())
+            conditions_str = conditions_str + "if (%s == %s) {\nfputs(\"%s##\", fp);\n" %(value[0].strip(), value[2].strip(), key)
         elif op == "&&":
-            conditions_str = conditions_str + "if (%s >= %s && %s < %s) {\n" %(value[0].strip(), value[2].strip(), value[0].strip(), value[3].strip())
+            conditions_str = conditions_str + "if (%s >= %s && %s < %s) {\nfputs(\"%s##\", fp);\n" %(value[0].strip(), value[2].strip(), value[0].strip(), value[3].strip(), key)
         elif op == "strncmp" or op == "memcmp":
-            conditions_str = conditions_str + "if (%s(%s, %s, %s) == 0) {\n" %(op, value[0].strip(), value[2].strip(), value[3].strip())
+            conditions_str = conditions_str + "if (%s(%s, %s, %s) == 0) {\nfputs(\"%s##\", fp);\n" %(op, value[0].strip(), value[2].strip(), value[3].strip(), key)
     return  conditions_str, tmp_index
 
-def _crc(conditions_str, value, val_size, tmp_index, if_crc, config_map):
+def _crc(conditions_str, key, value, val_size, tmp_index, if_crc, config_map):
     var_name = value[0];
     op = value[1].strip()
     if if_crc:
@@ -513,18 +520,40 @@ def _crc(conditions_str, value, val_size, tmp_index, if_crc, config_map):
             conditions_str = conditions_str + "unsigned char* tmp%d = int2byte(%s, %s);\n" %(tmp_index, var_name, var_name+"_size")
             b_arr = (int(value[2].strip(), 16)).to_bytes(val_size, byteorder='big')
             crc_val = crc(b_arr, val_size)
-            conditions_str = conditions_str + "if (crc(tmp%d, %s) == %d) {\n" %(tmp_index, var_name+"_size", crc_val)
+            conditions_str = conditions_str + "if (crc(tmp%d, %s) == %d) {\nfputs(\"%s##\", fp);\n" %(tmp_index, var_name+"_size", crc_val, key)
             tmp_index = tmp_index + 1
         elif op == "strncmp":
             crc_val = crc(value[2].strip().strip('\"'), int(value[3].strip()))
-            conditions_str = conditions_str + "if(crc(%s, %s) == %d) {\n" %(value[0].strip(), var_name+"_size", crc_val)
+            conditions_str = conditions_str + "if(crc(%s, %s) == %d) {\nfputs(\"%s##\", fp);\n" %(value[0].strip(), var_name+"_size", crc_val, key)
     else:
         if op == "==":
-            conditions_str = conditions_str + "if (%s == %s) {\n" %(value[0].strip(), value[2].strip())
+            conditions_str = conditions_str + "if (%s == %s) {\nfputs(\"%s##\", fp);\n" %(value[0].strip(), value[2].strip(), key)
         elif op == "&&":
-            conditions_str = conditions_str + "if (%s >= %s && %s < %s) {\n" %(value[0].strip(), value[2].strip(), value[0].strip(), value[3].strip())
+            conditions_str = conditions_str + "if (%s >= %s && %s < %s) {\nfputs(\"%s##\", fp);\n" %(value[0].strip(), value[2].strip(), value[0].strip(), value[3].strip(), key)
         elif op == "strncmp" or op == "memcmp":
-            conditions_str = conditions_str + "if (%s(%s, %s, %s) == 0) {\n" %(op, value[0].strip(), value[2].strip(), value[3].strip())
+            conditions_str = conditions_str + "if (%s(%s, %s, %s) == 0) {\nfputs(\"%s##\", fp);\n" %(op, value[0].strip(), value[2].strip(), value[3].strip(), key)
+    return conditions_str, tmp_index
+
+def _gaussian(conditions_str, key, value, val_size, tmp_index, if_gaussian, config_map):
+    var_name = value[0];
+    op = value[1].strip()
+    if if_gaussian:
+        bytes_num = 0
+        if op == "==":
+            lower = int(value[2].strip(), 16) - 1
+            upper = lower + 2
+            conditions_str = conditions_str + "if (gaussian(%s, %s, %s) > 0) {\nfputs(\"%s##\", fp);\n" %(value[0].strip(), hex(lower), hex(upper), key)
+        elif op == "&&":
+            lower = int(value[2].strip(), 16)
+            upper = int(value[3].strip(), 16)
+            conditions_str = conditions_str + "if (gaussian(%s, %s, %s) > 0) {\nfputs(\"%s##\", fp);\n" %(value[0].strip(), hex(lower), hex(upper), key)
+    else:
+        if op == "==":
+            conditions_str = conditions_str + "if (%s == %s) {\nfputs(\"%s##\", fp);\n" %(value[0].strip(), value[2].strip(), key)
+        elif op == "&&":
+            conditions_str = conditions_str + "if (%s >= %s && %s < %s) {\nfputs(\"%s##\", fp);\n" %(value[0].strip(), value[2].strip(), value[0].strip(), value[3].strip(), key)
+        elif op == "strncmp" or op == "memcmp":
+            conditions_str = conditions_str + "if (%s(%s, %s, %s) == 0) {\nfputs(\"%s##\", fp);\n" %(op, value[0].strip(), value[2].strip(), value[3].strip(), key)
     return conditions_str, tmp_index
 
 
@@ -572,11 +601,12 @@ def gen_testcase(dirname, template_file):
         implicit_dataflow1 = False #是否使用隐式数据流，类型1
         implicit_dataflow2 = False #是否使用隐式数据流，类型2
         crc = False # 是否使用crc对抗符号执行
+        gaussian = False # 是否使用高斯函数对抗符号执行
         line = content[line_num].strip()
         if line.startswith("#"):
             continue
         elif line.startswith("@BUG@"):
-            conditions_str = conditions_str + "bug();\n"
+            conditions_str = conditions_str + "fputs(\"\\n\", fp);\nfclose(fp);\nfp = NULL;\nbug();\n"
             bug_seen = True
         elif line.startswith("@CONDITION"):
             if content[line_num+1].strip().startswith("@BUG@"):
@@ -589,6 +619,8 @@ def gen_testcase(dirname, template_file):
                 implicit_dataflow2 = True
             elif line.find("$CRC$") >= 0:
                 crc = True
+            elif line.find("$GAUSSIAN$") >= 0:
+                gaussian = True
 
             if not bug_seen:
                 bug_related_constraints_num += 1
@@ -611,13 +643,15 @@ def gen_testcase(dirname, template_file):
                     lower = value[2].strip()
                     lower = int(lower, 16) - 1
                     upper = lower + 2
-                    conditions_str_kai = conditions_str + "bug2(%s, %d, %d);\n"%(value[0].strip(), lower, upper)
+                    conditions_str_kai = conditions_str + "fputs(\"\\n\", fp);\nfclose(fp);\nfp = NULL;\nbug2(%s, %d, %d);\n"%(value[0].strip(), lower, upper)
                 if implicit_dataflow2:
-                    conditions_str, tmp_index = _implicit_dataflow2(conditions_str, value, tmp_index, implicit_dataflow2, config_map)
+                    conditions_str, tmp_index = _implicit_dataflow2(conditions_str, line.strip(), value, tmp_index, implicit_dataflow2, config_map)
                 elif crc:
-                    conditions_str, tmp_index = _crc(conditions_str, value, _size, tmp_index, crc, config_map)
+                    conditions_str, tmp_index = _crc(conditions_str, line.strip(), value, _size, tmp_index, crc, config_map)
+                elif gaussian:
+                    conditions_str, tmp_index = _gaussian(conditions_str, line.strip(), value, _size, tmp_index, gaussian, config_map)
                 else:
-                    conditions_str, tmp_index = _implicit_dataflow1(conditions_str, value, tmp_index, implicit_dataflow1)
+                    conditions_str, tmp_index = _implicit_dataflow1(conditions_str, line.strip(), value, tmp_index, implicit_dataflow1)
                 conditions_str = conditions_str + "//@NOISE@\n"
                 bug_trigger_space = bug_trigger_space + value[3].strip() + "*"
                 # gen poc
@@ -633,12 +667,14 @@ def gen_testcase(dirname, template_file):
                     lower = int(lower, 16)
                     upper = value[3].strip()
                     upper = int(upper, 16)
-                    conditions_str_kai = conditions_str + "bug2(%s, %d, %d);\n"%(value[0].strip(), lower, upper)
+                    conditions_str_kai = conditions_str + "fputs(\"\\n\", fp);\nfclose(fp);\nfp = NULL;\nbug2(%s, %d, %d);\n"%(value[0].strip(), lower, upper)
 
                 if implicit_dataflow2:
-                    conditions_str, tmp_index = _implicit_dataflow2(conditions_str, value, tmp_index, implicit_dataflow2, config_map)
+                    conditions_str, tmp_index = _implicit_dataflow2(conditions_str, line.strip(), value, tmp_index, implicit_dataflow2, config_map)
+                elif gaussian:
+                    conditions_str, tmp_index = _gaussian(conditions_str, line.strip(), value, _size, tmp_index, gaussian, config_map)
                 else:
-                    conditions_str, tmp_index = _implicit_dataflow1(conditions_str, value, tmp_index, implicit_dataflow1)
+                    conditions_str, tmp_index = _implicit_dataflow1(conditions_str, line.strip(), value, tmp_index, implicit_dataflow1)
 
                 conditions_str = conditions_str + "//@NOISE@\n"
                 bug_trigger_space = bug_trigger_space + value[4].strip() + "*"
@@ -653,11 +689,11 @@ def gen_testcase(dirname, template_file):
                     poc[i] = int_arr[i-_start-blank]
             elif op == "strncmp" or op == "memcmp":
                 if implicit_dataflow2:
-                    conditions_str, tmp_index = _implicit_dataflow2(conditions_str, value, tmp_index, implicit_dataflow2, config_map)
+                    conditions_str, tmp_index = _implicit_dataflow2(conditions_str, line.strip(), value, tmp_index, implicit_dataflow2, config_map)
                 elif crc:
-                    conditions_str, tmp_index = _crc(conditions_str, value, _size, tmp_index, crc, config_map)
+                    conditions_str, tmp_index = _crc(conditions_str, line.strip(), value, _size, tmp_index, crc, config_map)
                 else:
-                    conditions_str, tmp_index = _implicit_dataflow1(conditions_str, value, tmp_index, implicit_dataflow1)
+                    conditions_str, tmp_index = _implicit_dataflow1(conditions_str, line.strip(), value, tmp_index, implicit_dataflow1)
                 conditions_str = conditions_str + "//@NOISE@\n"
                 bug_trigger_space = bug_trigger_space + value[4].strip() + "*"
                 # gen poc
@@ -684,13 +720,13 @@ def gen_testcase(dirname, template_file):
                     for i in range(_start, _end):
                         poc[i] = int_arr[i-_start]
         elif line.startswith("@ELSE@"):
-            conditions_str = conditions_str + "} else {\n" + "//@NOISE@\n" + "}\n"
+            conditions_str = conditions_str + "} else {\n" + "//@NOISE@\nfputs(\"%s##\", fp);\n"%(line.strip()) + "}\n"
             if conditions_str_kai and bug_kai:
                 # skip the first else
                 bug_kai = False
                 continue
             elif conditions_str_kai and not bug_kai:
-                conditions_str_kai = conditions_str_kai + "} else {\n" + "//@NOISE@\n" + "}\n"
+                conditions_str_kai = conditions_str_kai + "} else {\n" + "//@NOISE@\nfputs(\"%s##\", fp);\n"%(line.strip()) + "}\n"
             elif not conditions_str_kai and not bug_kai:
                 continue
 
@@ -713,13 +749,13 @@ def gen_testcase(dirname, template_file):
     # gen Makefile
     os.system("cp Makefile %s" %(dirname))
 
-    src = src.replace("@TRACE_FILE@", os.path.basename(dirname).strip()) # trace file
-    src_1 = src.replace("@INSERTION@", conditions_str) # condition src code
+    src = src.replace("@TRACE_FILE@", os.path.basename(dirname).strip())
+    src_1 = src.replace("@INSERTION@", conditions_str)
     src_file = os.path.join(dirname, dirname.strip("/").split("/")[-1] + ".c")
     with open(src_file, "w") as fp:
         fp.write(src_1)
 
-    if conditions_str_kai and dirname.find("_kai") < 0 and dirname.find("_IDF") < 0 and dirname.find("_CRC") < 0 and dirname.find("_NOISE") < 0:
+    if conditions_str_kai and dirname.find("kai") < 0 and dirname.find("IDF") < 0 and dirname.find("CRC") < 0 and dirname.find("NOISE") < 0 and dirname.find("gaussian") < 0:
         os.system("cp -r %s %s" %(dirname, dirname_kai))
         os.system("rm %s" %(os.path.join(dirname_kai, dirname.strip("/").split("/")[-1] + ".c")))
         src_kai = src.replace("@INSERTION@", conditions_str_kai)
@@ -784,13 +820,15 @@ def gen_testcases_hampering_feature(testcase_dir, hampering_feature="IDF1"):
         testcase_dir_lst.append(os.path.join(testcase_dir, one))
     for one in testcase_dir_lst:
         # 跳过已经包含隐式数据流/CRC的样本
-        if one.find("_IDF") >= 0 or one.find("CRC") >= 0:
+        if one.find("IDF") >= 0 or one.find("CRC") >= 0 or one.find("gaussian") >= 0:
             continue
         # copy config and struct
         if hampering_feature == "IDF1":
             new_dir = one + "_IDF1"
         elif hampering_feature == "CRC":
             new_dir = one + "_CRC"
+        elif hampering_feature == "gaussian":
+            new_dir = one + "_gaussian"
         struct_file = os.path.join(one, "struct")
         config_file = os.path.join(one, "config")
         if not os.path.exists(new_dir):
@@ -801,6 +839,8 @@ def gen_testcases_hampering_feature(testcase_dir, hampering_feature="IDF1"):
             content = add_hampering_feature(config_file, struct_file, hampering_feature="IDF1", inum=1)
         elif hampering_feature == "CRC":
             content = add_hampering_feature(config_file, struct_file, hampering_feature="CRC", inum=1)
+        elif hampering_feature == "gaussian":
+            content = add_hampering_feature(config_file, struct_file, hampering_feature="gaussian", inum=1)
         if not content:
             # 无法生成带有妨碍特征的struct，删除文件夹，然后处理下一个
             os.system("rm -rf %s" %(new_dir))
@@ -843,9 +883,13 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--config", dest="config", help="input configuration file")
-    parser.add_argument("-g", "--generate", dest="gen", help="[idf1|idf2|crc|noise]:generate implicit dataflow type1|type2")
+    parser.add_argument("-g", "--generate", dest="gen", help="[idf1|idf2|crc|noise|gaussian]")
     parser.add_argument("-t", "--target", dest="target", help="target directory")
+    parser.add_argument("-dt", "--directtarget", dest="directtarget", help="target testcase directory")
     args = parser.parse_args()
+
+    if args.directtarget:
+        gen_testcase(args.directtarget, "template2")
     
     if args.config:
         config_map = parse_config(args.config)
@@ -853,26 +897,31 @@ if __name__ == '__main__':
         os.system("cp %s %s" %(args.config, basename))
         testcases_dir = gen_struct(config_map)
         for testcase in testcases_dir:
-            gen_testcase(testcase, "template")
+            gen_testcase(testcase, "template2")
         os.system("rm %s" %(basename))
 
     if args.gen == "idf1":
         idf_testcases = gen_testcases_hampering_feature(args.target, hampering_feature="IDF1")
         for testcase in idf_testcases:
-            gen_testcase(testcase, "template")
+            gen_testcase(testcase, "template2")
 
     if args.gen == "idf2":
         idf_testcases = gen_testcases_implicit_dataflow2(args.target)
         for testcase in idf_testcases:
-            gen_testcase(testcase, "template")
+            gen_testcase(testcase, "template2")
 
     if args.gen == "crc":
         testcases = gen_testcases_hampering_feature(args.target, hampering_feature="CRC")
         for testcase in testcases:
-            gen_testcase(testcase, "template")
+            gen_testcase(testcase, "template2")
+
+    if args.gen == "gaussian":
+        testcases = gen_testcases_hampering_feature(args.target, hampering_feature="gaussian")
+        for testcase in testcases:
+            gen_testcase(testcase, "template2")
 
     if args.gen == "noise":
         noise_testcases = gen_testcases_noise_path(args.target)
         for testcase in noise_testcases:
-            gen_testcase(testcase, "template")
+            gen_testcase(testcase, "template2")
             gen_noise(testcase)
