@@ -4,6 +4,7 @@ Code generator that constructs benchmarks for interpretable evaluation of fuzz t
 # Introduction
 `template2` is a code template for generating C code.
 `Bench4I` is a pre-generated benchmark.
+`Makefile` is a universal Makefile for all generated target programs.
 
 # Usage
 Run `python gen_config_rand.py` to generate config files. The generated config files are in `configs` directory.
