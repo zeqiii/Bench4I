@@ -1,2 +1,2 @@
 # Bench4I
-bug bench with high interpretability for fuzzers evaluation
+bug bench for interpretable evaluation of fuzz testing
