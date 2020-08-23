@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
-import random, string
+import os, random, string
+
+config_dir = "configs"
+if not os.path.exists(config_dir):
+    os.makedirs(config_dir)
 
 def pp(res):
     content = []
@@ -239,14 +243,15 @@ def gen_config(input_size, tainted_size):
         fp.write(content)
         fp.flush()
         fp.close()
+        os.system("mv %s %s" %(_file_name, config_dir))
     return config_maps
 
 
 if __name__ == "__main__":
-    #config_maps_4_4 = gen_config(4, 4)
-    #config_maps_8_4 = gen_config(8, 4)
-    #config_maps_8_8 = gen_config(8, 8)
-    #config_maps_12_4 = gen_config(12, 4)
-    #config_maps_16_8 = gen_config(16, 8)
-    #config_maps_16_4 = gen_config(16, 4)
+    config_maps_4_4 = gen_config(4, 4)
+    config_maps_8_4 = gen_config(8, 4)
+    config_maps_8_8 = gen_config(8, 8)
+    config_maps_12_4 = gen_config(12, 4)
+    config_maps_16_8 = gen_config(16, 8)
+    config_maps_16_4 = gen_config(16, 4)
     config_maps_16_16 = gen_config(16,16)

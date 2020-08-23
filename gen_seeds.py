@@ -4,7 +4,7 @@ import os, sys
 # 构造8个种子文件，长度为目标程序必须读入的最小字节数
 # 每个字节分别为 0x00, 0x22, 0x44, 0x66, 0x88, 0xaa, 0xcc, 0xee
 
-def gen_seeds(testcase_dir, seed_len):
+def gen_seeds(testcase_dir):
     testcase_dir = testcase_dir.strip("/")
     base = testcase_dir.split("/")[-1]
     INPUT_SIZE = base.split("_")[0].strip()
@@ -27,10 +27,10 @@ def gen_seeds(testcase_dir, seed_len):
             fp.write(bytearray(arr))
         e = e + 0x22
 
-def gen_seeds_testset(testset_dir, seed_len):
+def gen_seeds_testset(testset_dir):
     for one in os.listdir(testset_dir):
-        gen_seeds(os.path.join(testset_dir, one), seed_len)
+        gen_seeds(os.path.join(testset_dir, one))
 
 
 if __name__ == "__main__":
-    gen_seeds_testset(sys.argv[1], sys.argv[2])
+    gen_seeds_testset(sys.argv[1])

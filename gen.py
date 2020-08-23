@@ -18,6 +18,8 @@ FUN_READ_UNSIGNED_INT32 = "read_unsigned_int32"
 FUN_READ_UNSIGNED_INT16 = "read_unsigned_int16"
 
 testcase_dir = "testcases"
+if not os.path.exists(testcase_dir):
+    os.makedirs(testcase_dir)
 
 
 class Config():
@@ -861,7 +863,7 @@ def gen_testcases_implicit_dataflow2(testcase_dir):
         IDF1.append(os.path.join(testcase_dir, one))
     for one in IDF1:
         # 复制
-        new_dir = one[:-1]+"2"
+        new_dir = one[:-1]
         if not os.path.exists(new_dir):
             os.makedirs(new_dir)
         struct_file = os.path.join(one, "struct")
@@ -876,6 +878,8 @@ def gen_testcases_implicit_dataflow2(testcase_dir):
             with open(new_struct_file, "w") as wp:
                 wp.write(content)
         IDF2.append(new_dir)
+    for one in IDF1:
+        os.system("rm -rf %s" %(one))
     # 返回样本路径列表
     return IDF2
 
@@ -883,7 +887,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--config", dest="config", help="input configuration file")
-    parser.add_argument("-g", "--generate", dest="gen", help="[idf1|idf2|crc|noise|gaussian]")
+    parser.add_argument("-g", "--generate", dest="gen", help="[idf|crc|noise|gaussian]")
     parser.add_argument("-t", "--target", dest="target", help="target directory")
     parser.add_argument("-dt", "--directtarget", dest="directtarget", help="target testcase directory")
     args = parser.parse_args()
@@ -905,7 +909,8 @@ if __name__ == '__main__':
         for testcase in idf_testcases:
             gen_testcase(testcase, "template2")
 
-    if args.gen == "idf2":
+    if args.gen == "idf":
+        idf_testcases = gen_testcases_hampering_feature(args.target, hampering_feature="IDF1")
         idf_testcases = gen_testcases_implicit_dataflow2(args.target)
         for testcase in idf_testcases:
             gen_testcase(testcase, "template2")
