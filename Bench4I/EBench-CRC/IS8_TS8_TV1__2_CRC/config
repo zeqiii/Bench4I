@@ -1,0 +1,8 @@
+@CONDITION1:VAR1@=(VAR1, strncmp, "ynhBY7Rl", 8, 0x1)
+@CONDITION2:VAR1@=(VAR1, memcmp, rand_bytes1, 8, 0x1)
+@CONFIG_FILE@=IS8_TS8_TV1.conf
+@EXTRA_VARS1@=unsigned char rand_bytes1[]={0x6e,0x38,0x31,0x76,0x7,0x31,0x1c,0x7b};
+@INPUT_SIZE@=8
+@TAINTED_SIZE@=8
+@TAINTED_VAR_NUM@=1
+@VAR1@=(unsigned char*, VAR1, 0-8)

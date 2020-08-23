@@ -1,0 +1,16 @@
+@CONDITION1:VAR3@=(VAR3, ==, 0x36, 0x1)
+@CONDITION2:VAR1@=(VAR1, ==, 0x31, 0x1)
+@CONDITION3:VAR4@=(VAR4, ==, 0x7a, 0x1)
+@CONDITION4:VAR2@=(VAR2, ==, 0x57, 0x1)
+@CONFIG_FILE@=IS8_TS4_TV4.conf
+@INPUT_SIZE@=8
+@TAINTED_SIZE@=4
+@TAINTED_VAR_NUM@=4
+@UTVAR1@=(unsigned char, UTVAR1, 0-1)
+@UTVAR2@=(unsigned char, UTVAR2, 1-2)
+@UTVAR3@=(unsigned char, UTVAR3, 2-3)
+@UTVAR4@=(unsigned char, UTVAR4, 7-8)
+@VAR1@=(unsigned char, VAR1, 3-4)
+@VAR2@=(unsigned char, VAR2, 4-5)
+@VAR3@=(unsigned char, VAR3, 5-6)
+@VAR4@=(unsigned char, VAR4, 6-7)

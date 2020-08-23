@@ -1,0 +1,20 @@
+@CONDITION1:VAR3@=(VAR3, ==, 0x2a, 0x1)
+@CONDITION2:VAR1@=(VAR1, ==, 0x4c, 0x1)
+@CONDITION3:VAR4@=(VAR4, ==, 0x7c, 0x1)
+@CONDITION4:VAR5@=(VAR5, ==, 0x1f, 0x1)
+@CONDITION5:VAR2@=(VAR2, ==, 0x61, 0x1)
+@CONDITION6:VAR6@=(VAR6, ==, 0x21, 0x1)
+@CONDITION7:VAR7@=(VAR7, ==, 0x1a, 0x1)
+@CONDITION8:VAR8@=(VAR8, ==, 0xb, 0x1)
+@CONFIG_FILE@=IS8_TS8_TV8.conf
+@INPUT_SIZE@=8
+@TAINTED_SIZE@=8
+@TAINTED_VAR_NUM@=8
+@VAR1@=(unsigned char, VAR1, 0-1)
+@VAR2@=(unsigned char, VAR2, 1-2)
+@VAR3@=(unsigned char, VAR3, 2-3)
+@VAR4@=(unsigned char, VAR4, 3-4)
+@VAR5@=(unsigned char, VAR5, 4-5)
+@VAR6@=(unsigned char, VAR6, 5-6)
+@VAR7@=(unsigned char, VAR7, 6-7)
+@VAR8@=(unsigned char, VAR8, 7-8)

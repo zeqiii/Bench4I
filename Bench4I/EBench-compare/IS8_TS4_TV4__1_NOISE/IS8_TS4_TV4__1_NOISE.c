@@ -1,0 +1,1246 @@
+#include<sys/stat.h>
+#include<string.h>
+#include<stdio.h>
+#include<stdlib.h>
+#include<sys/types.h>
+#include<fcntl.h>
+#include <unistd.h>
+#include <math.h>
+
+// record execution trace
+//// section of functional functions
+
+unsigned int read_unsigned_int16(unsigned char *input) {
+    unsigned int uint16;
+    uint16 = input[0] << 8;
+    uint16 = uint16 | input[1];
+    return uint16;
+}
+
+unsigned int read_unsigned_int32(unsigned char *input) {
+    unsigned int uint32;
+    uint32 = input[0] << 24;
+    uint32 = uint32 | input[1] << 16;
+    uint32 = uint32 | input[2] << 8;
+    uint32 = uint32 | input[3];
+    return uint32;
+}
+
+unsigned int read_int(unsigned char *input, int size) {
+    unsigned int result = 0;
+    for (int i=0; i<size; i++)
+        result = (result<<(8)) | input[i];
+    return result;
+}
+
+unsigned char* int2byte(unsigned int input, unsigned int len) {
+    unsigned char* a = (unsigned char*)malloc(len*sizeof(unsigned char));
+    for(int i=0; i<len; i++) {
+        *(a+len-i-1) = (input>>(i*8)) & 0xFF;
+    }
+    return a;
+}
+
+unsigned long crc(unsigned char* test, unsigned int len) {
+    unsigned long temp = 0;
+    unsigned int crc;
+    unsigned char i;
+    unsigned char *ptr = test;
+    while( len-- ) {
+        for(i = 0x80; i != 0; i = i >> 1) {
+            temp = temp * 2;
+            if((temp & 0x10000) != 0)
+                temp = temp ^ 0x11021;
+            if((*ptr & i) != 0)
+                temp = temp ^ (0x10000 ^ 0x11021);
+        }
+        ptr++;
+    }
+    return temp;
+}
+
+// when input is in (lower, upper), return 1, else return 0
+int gaussian(unsigned int input, unsigned int lower, unsigned int upper) {
+    double m = ((double)lower + (double)upper) / 2.0;
+    double exponent = -1.0 * ((lower-m)*(lower-m)) / ((lower-m)*(lower-m));
+    double fx = exp(exponent);
+    double a = 1.0 / fx;
+
+    double exponent2 = -1.0 * ((input-m)*(input-m)) / ((lower-m)*(lower-m));
+    double fx2 = a * exp(exponent2);
+    return (int)fx2;
+}
+
+// custom comparing function
+int ncmp(unsigned char* a, unsigned char* b, unsigned int n) {
+    int i = 0;
+    while(i < n) {
+        if (a[i] == b[i])
+            i++;
+        else if (a[i] < b[i])
+            return -1;
+        else
+            return 1;
+    }
+    return 0;
+}
+
+//// section of functional functions
+
+
+//// section of bug functions
+
+void bug() {
+    // implement your own bug
+    // bug will be triggered as long as the execution reaches to this
+    char dst[64];
+    char* src = (char*)malloc(65535*sizeof(char));
+    memset(src, 'A', 65535);
+    memcpy(dst, src, 65535); // potential flaw, overflow
+    free(src);
+    printf("%d\n", *(src)); // potential flaw, UAF
+}
+
+void bug2(unsigned int input, unsigned int lower, unsigned int upper) {
+    // implement your own bug
+    // bug will be triggered when the parameter is in a particular range: (lower, upper)
+    char dst[64];
+    char* src = (char*)malloc(128*sizeof(char));
+    memset(src, 'A', 128);
+    memcpy(dst, src, 64+input*gaussian(input, lower, upper)); // potential flaw, overflow
+    free(src);
+    if (gaussian(input, lower, upper) > 0)
+        printf("%d\n", *(src)); // potential flaw, UAF
+}
+
+void bug3(unsigned int input, unsigned int lower, unsigned int upper) {
+    // implement your own bug
+    // bug will be triggered when input is in a particular range
+    if (input > upper)
+        return;
+    char* src = (char*)malloc(lower*sizeof(char));
+    char c;
+    unsigned int i = 0;
+    while(i < input) {
+        i++;
+        c = *(src + i);
+        printf("%c\n", c);
+    }
+    free(src);
+}
+
+//// section of bug fucntions
+
+
+//// section of main function
+
+int main(int argc, char **argv) {
+
+    //// common header
+    FILE *fp;
+    if ((fp = fopen("/dev/shm/IS8_TS4_TV4__1_NOISE", "a+")) == NULL)
+        exit(0);
+
+    unsigned char input[8];
+    int i, fd, size, tmp;
+    int temp=0, temp2=0, ch=0; // used for implicit dataflow
+    struct stat s;
+    if ((fd = open(argv[1], O_RDONLY)) == -1) {
+        fputs("Failed to open file!\n", fp);
+        exit(0);
+    }
+    fstat(fd, &s);
+    size = s.st_size;
+    if (size < 8) {
+        fputs("Input size invalid!\n", fp);
+        return -1;
+    }
+    read(fd, input, 8);
+    //// common header
+
+    //// variables
+    unsigned char UTVAR1 = input[0];
+int UTVAR1_size = 1;
+unsigned char UTVAR2 = input[1];
+int UTVAR2_size = 1;
+unsigned char UTVAR3 = input[2];
+int UTVAR3_size = 1;
+unsigned char UTVAR4 = input[7];
+int UTVAR4_size = 1;
+unsigned char VAR1 = input[3];
+int VAR1_size = 1;
+unsigned char VAR2 = input[4];
+int VAR2_size = 1;
+unsigned char VAR3 = input[5];
+int VAR3_size = 1;
+unsigned char VAR4 = input[6];
+int VAR4_size = 1;
+
+    //// variables
+
+    //// section of insertion
+    if (VAR1 == 0x31) {
+fputs("@CONDITION2:VAR1@##", fp);
+
+if (VAR2 == 0x57) {
+fputs("@CONDITION4:VAR2@##", fp);
+
+if (VAR3 == 0x36) {
+fputs("@CONDITION1:VAR3@##", fp);
+
+if (VAR4 == 0x7a) {
+fputs("@CONDITION3:VAR4@##", fp);
+
+fputs("\n", fp);
+fclose(fp);
+fp = NULL;
+bug();
+} else {
+
+fputs("@ELSE@-@CONDITION3:VAR4@##", fp);
+}
+} else {
+
+fputs("@ELSE@-@CONDITION1:VAR3@##", fp);
+}
+} else {
+
+fputs("@ELSE@-@CONDITION4:VAR2@##", fp);
+}
+} else {
+if(UTVAR1>=0 && UTVAR1<2)
+printf("-1650790166012625679\n");
+if(UTVAR1>=2 && UTVAR1<4)
+printf("2912794424784464046\n");
+if(UTVAR1>=4 && UTVAR1<6)
+printf("-1207779093975180242\n");
+if(UTVAR1>=6 && UTVAR1<8)
+printf("2763113067332376454\n");
+if(UTVAR1>=8 && UTVAR1<10)
+printf("-5475981287499565822\n");
+if(UTVAR1>=10 && UTVAR1<12)
+printf("2821228434218430207\n");
+if(UTVAR1>=12 && UTVAR1<14)
+printf("7792884557007014534\n");
+if(UTVAR1>=14 && UTVAR1<16)
+printf("8178230700294339237\n");
+if(UTVAR1>=16 && UTVAR1<18)
+printf("-1351516722269736998\n");
+if(UTVAR1>=18 && UTVAR1<20)
+printf("-3469373283773805771\n");
+if(UTVAR1>=20 && UTVAR1<22)
+printf("7082866215551402131\n");
+if(UTVAR1>=22 && UTVAR1<24)
+printf("2601285624190091777\n");
+if(UTVAR1>=24 && UTVAR1<26)
+printf("4719382140332783671\n");
+if(UTVAR1>=26 && UTVAR1<28)
+printf("4954893466068314142\n");
+if(UTVAR1>=28 && UTVAR1<30)
+printf("-4312256691654241340\n");
+if(UTVAR1>=30 && UTVAR1<32)
+printf("3475649389777800362\n");
+if(UTVAR1>=32 && UTVAR1<34)
+printf("-7619070072062808650\n");
+if(UTVAR1>=34 && UTVAR1<36)
+printf("7644260287665556824\n");
+if(UTVAR1>=36 && UTVAR1<38)
+printf("4020770916523115760\n");
+if(UTVAR1>=38 && UTVAR1<40)
+printf("3529443487455302157\n");
+if(UTVAR1>=40 && UTVAR1<42)
+printf("-2193826822187020845\n");
+if(UTVAR1>=42 && UTVAR1<44)
+printf("-8883924978662214818\n");
+if(UTVAR1>=44 && UTVAR1<46)
+printf("5839795246752201524\n");
+if(UTVAR1>=46 && UTVAR1<48)
+printf("973720139200425622\n");
+if(UTVAR1>=48 && UTVAR1<50)
+printf("899265475107298241\n");
+if(UTVAR1>=50 && UTVAR1<52)
+printf("8740342978116881690\n");
+if(UTVAR1>=52 && UTVAR1<54)
+printf("7075682639901887948\n");
+if(UTVAR1>=54 && UTVAR1<56)
+printf("6596852477313794907\n");
+if(UTVAR1>=56 && UTVAR1<58)
+printf("2595490152529120419\n");
+if(UTVAR1>=58 && UTVAR1<60)
+printf("-6595667762828854178\n");
+if(UTVAR1>=60 && UTVAR1<62)
+printf("-8608216212594395693\n");
+if(UTVAR1>=62 && UTVAR1<64)
+printf("5908128996733660834\n");
+if(UTVAR1>=64 && UTVAR1<66)
+printf("-2416657411533897530\n");
+if(UTVAR1>=66 && UTVAR1<68)
+printf("8665913297415546581\n");
+if(UTVAR1>=68 && UTVAR1<70)
+printf("2819954918833369489\n");
+if(UTVAR1>=70 && UTVAR1<72)
+printf("531910250240473156\n");
+if(UTVAR1>=72 && UTVAR1<74)
+printf("5126808702431268984\n");
+if(UTVAR1>=74 && UTVAR1<76)
+printf("-6428326836985140546\n");
+if(UTVAR1>=76 && UTVAR1<78)
+printf("9053123028585698501\n");
+if(UTVAR1>=78 && UTVAR1<80)
+printf("2799216940595638666\n");
+if(UTVAR1>=80 && UTVAR1<82)
+printf("8732320427295724195\n");
+if(UTVAR1>=82 && UTVAR1<84)
+printf("8022756748181254885\n");
+if(UTVAR1>=84 && UTVAR1<86)
+printf("-8622461917051206383\n");
+if(UTVAR1>=86 && UTVAR1<88)
+printf("4021530309220601662\n");
+if(UTVAR1>=88 && UTVAR1<90)
+printf("-2567215920711947094\n");
+if(UTVAR1>=90 && UTVAR1<92)
+printf("-7414841285741469607\n");
+if(UTVAR1>=92 && UTVAR1<94)
+printf("-5119377666999952576\n");
+if(UTVAR1>=94 && UTVAR1<96)
+printf("-3039147971045654041\n");
+if(UTVAR1>=96 && UTVAR1<98)
+printf("6908886155993937610\n");
+if(UTVAR1>=98 && UTVAR1<100)
+printf("-1241493854768912646\n");
+if(UTVAR1>=100 && UTVAR1<102)
+printf("2343714505126548912\n");
+if(UTVAR1>=102 && UTVAR1<104)
+printf("2872926932021014531\n");
+if(UTVAR1>=104 && UTVAR1<106)
+printf("7791949208522360696\n");
+if(UTVAR1>=106 && UTVAR1<108)
+printf("-3485943877533074712\n");
+if(UTVAR1>=108 && UTVAR1<110)
+printf("-4148940680763820079\n");
+if(UTVAR1>=110 && UTVAR1<112)
+printf("7808847138526166479\n");
+if(UTVAR1>=112 && UTVAR1<114)
+printf("1476097528939834522\n");
+if(UTVAR1>=114 && UTVAR1<116)
+printf("6660796284628931549\n");
+if(UTVAR1>=116 && UTVAR1<118)
+printf("-7244439784271261433\n");
+if(UTVAR1>=118 && UTVAR1<120)
+printf("3782285827888362009\n");
+if(UTVAR1>=120 && UTVAR1<122)
+printf("-5853974846428847852\n");
+if(UTVAR1>=122 && UTVAR1<124)
+printf("-5066683361332061430\n");
+if(UTVAR1>=124 && UTVAR1<126)
+printf("2750364358965334238\n");
+if(UTVAR1>=126 && UTVAR1<128)
+printf("7823081982806595392\n");
+if(UTVAR1>=128 && UTVAR1<130)
+printf("5317848748196366530\n");
+if(UTVAR1>=130 && UTVAR1<132)
+printf("3125223276721021332\n");
+if(UTVAR1>=132 && UTVAR1<134)
+printf("5129287017266890357\n");
+if(UTVAR1>=134 && UTVAR1<136)
+printf("-3400841287215465418\n");
+if(UTVAR1>=136 && UTVAR1<138)
+printf("-5059180064095498451\n");
+if(UTVAR1>=138 && UTVAR1<140)
+printf("-9083675182396361535\n");
+if(UTVAR1>=140 && UTVAR1<142)
+printf("4164524398885482135\n");
+if(UTVAR1>=142 && UTVAR1<144)
+printf("-7332814947200202350\n");
+if(UTVAR1>=144 && UTVAR1<146)
+printf("-8337706867856499043\n");
+if(UTVAR1>=146 && UTVAR1<148)
+printf("-7548331335675578707\n");
+if(UTVAR1>=148 && UTVAR1<150)
+printf("-2296823984553507400\n");
+if(UTVAR1>=150 && UTVAR1<152)
+printf("-4996329347419891127\n");
+if(UTVAR1>=152 && UTVAR1<154)
+printf("-7266815929531146864\n");
+if(UTVAR1>=154 && UTVAR1<156)
+printf("8486347740956293822\n");
+if(UTVAR1>=156 && UTVAR1<158)
+printf("-544566400480341457\n");
+if(UTVAR1>=158 && UTVAR1<160)
+printf("897843049314077233\n");
+if(UTVAR1>=160 && UTVAR1<162)
+printf("-3298142198382408238\n");
+if(UTVAR1>=162 && UTVAR1<164)
+printf("-1319341073493790650\n");
+if(UTVAR1>=164 && UTVAR1<166)
+printf("-1940456025844489200\n");
+if(UTVAR1>=166 && UTVAR1<168)
+printf("-2620430444867340002\n");
+if(UTVAR1>=168 && UTVAR1<170)
+printf("-1698715206600244138\n");
+if(UTVAR1>=170 && UTVAR1<172)
+printf("7605272977661866100\n");
+if(UTVAR1>=172 && UTVAR1<174)
+printf("-2234340572433561214\n");
+if(UTVAR1>=174 && UTVAR1<176)
+printf("3655026999378084666\n");
+if(UTVAR1>=176 && UTVAR1<178)
+printf("487605256861534013\n");
+if(UTVAR1>=178 && UTVAR1<180)
+printf("-5242266406817551753\n");
+if(UTVAR1>=180 && UTVAR1<182)
+printf("8396165606712529150\n");
+if(UTVAR1>=182 && UTVAR1<184)
+printf("-1155084539032486028\n");
+if(UTVAR1>=184 && UTVAR1<186)
+printf("7374249912471170300\n");
+if(UTVAR1>=186 && UTVAR1<188)
+printf("2715594819825219218\n");
+if(UTVAR1>=188 && UTVAR1<190)
+printf("-6726094335392866290\n");
+if(UTVAR1>=190 && UTVAR1<192)
+printf("6286637630652653584\n");
+if(UTVAR1>=192 && UTVAR1<194)
+printf("-2857781731750403115\n");
+if(UTVAR1>=194 && UTVAR1<196)
+printf("2843171725039216940\n");
+if(UTVAR1>=196 && UTVAR1<198)
+printf("-8140982394992693693\n");
+if(UTVAR1>=198 && UTVAR1<200)
+printf("6087209397973055533\n");
+if(UTVAR1>=200 && UTVAR1<202)
+printf("-5395604060499578422\n");
+if(UTVAR1>=202 && UTVAR1<204)
+printf("16635234768146159\n");
+if(UTVAR1>=204 && UTVAR1<206)
+printf("-2878978500230237134\n");
+if(UTVAR1>=206 && UTVAR1<208)
+printf("-769020259614678347\n");
+if(UTVAR1>=208 && UTVAR1<210)
+printf("-3320062728369971725\n");
+if(UTVAR1>=210 && UTVAR1<212)
+printf("1650065320985620266\n");
+if(UTVAR1>=212 && UTVAR1<214)
+printf("-8748347570179820078\n");
+if(UTVAR1>=214 && UTVAR1<216)
+printf("-964837938536718522\n");
+if(UTVAR1>=216 && UTVAR1<218)
+printf("1989687806125610391\n");
+if(UTVAR1>=218 && UTVAR1<220)
+printf("865927886650453275\n");
+if(UTVAR1>=220 && UTVAR1<222)
+printf("1303570918300771168\n");
+if(UTVAR1>=222 && UTVAR1<224)
+printf("-1193041062540527354\n");
+if(UTVAR1>=224 && UTVAR1<226)
+printf("-6429915521823715307\n");
+if(UTVAR1>=226 && UTVAR1<228)
+printf("-3956488707403277243\n");
+if(UTVAR1>=228 && UTVAR1<230)
+printf("7946166852329836197\n");
+if(UTVAR1>=230 && UTVAR1<232)
+printf("-713162352661118321\n");
+if(UTVAR1>=232 && UTVAR1<234)
+printf("-6672591831782744555\n");
+if(UTVAR1>=234 && UTVAR1<236)
+printf("-7210005545068280734\n");
+if(UTVAR1>=236 && UTVAR1<238)
+printf("-3191850113143560746\n");
+if(UTVAR1>=238 && UTVAR1<240)
+printf("8111042404716079153\n");
+if(UTVAR1>=240 && UTVAR1<242)
+printf("-4710111532860922606\n");
+if(UTVAR1>=242 && UTVAR1<244)
+printf("-4615743077042392943\n");
+if(UTVAR1>=244 && UTVAR1<246)
+printf("2986386698131825613\n");
+if(UTVAR1>=246 && UTVAR1<248)
+printf("330682898332848129\n");
+if(UTVAR1>=248 && UTVAR1<250)
+printf("-3752892226062641683\n");
+if(UTVAR1>=250 && UTVAR1<252)
+printf("3550062342870107665\n");
+if(UTVAR1>=252 && UTVAR1<254)
+printf("6310094980424199785\n");
+if(UTVAR1>=254 && UTVAR1<256)
+printf("62778315743674285\n");
+if(UTVAR2>=0 && UTVAR2<2)
+printf("5539913674511254345\n");
+if(UTVAR2>=2 && UTVAR2<4)
+printf("-1051381773793732766\n");
+if(UTVAR2>=4 && UTVAR2<6)
+printf("-14369917308830721\n");
+if(UTVAR2>=6 && UTVAR2<8)
+printf("6395667786867818923\n");
+if(UTVAR2>=8 && UTVAR2<10)
+printf("5805047002028840800\n");
+if(UTVAR2>=10 && UTVAR2<12)
+printf("6629282310242622399\n");
+if(UTVAR2>=12 && UTVAR2<14)
+printf("8282065391678347917\n");
+if(UTVAR2>=14 && UTVAR2<16)
+printf("-6719136763394888861\n");
+if(UTVAR2>=16 && UTVAR2<18)
+printf("-6925083146005931574\n");
+if(UTVAR2>=18 && UTVAR2<20)
+printf("6088508623767820550\n");
+if(UTVAR2>=20 && UTVAR2<22)
+printf("6997639227518706908\n");
+if(UTVAR2>=22 && UTVAR2<24)
+printf("6629755428651911818\n");
+if(UTVAR2>=24 && UTVAR2<26)
+printf("2848018571640877390\n");
+if(UTVAR2>=26 && UTVAR2<28)
+printf("-5776772384926708175\n");
+if(UTVAR2>=28 && UTVAR2<30)
+printf("-2746238788705473383\n");
+if(UTVAR2>=30 && UTVAR2<32)
+printf("-1153507896242239525\n");
+if(UTVAR2>=32 && UTVAR2<34)
+printf("-5491306187477924408\n");
+if(UTVAR2>=34 && UTVAR2<36)
+printf("5113010475412668602\n");
+if(UTVAR2>=36 && UTVAR2<38)
+printf("-1653809360490202919\n");
+if(UTVAR2>=38 && UTVAR2<40)
+printf("7136412947018527949\n");
+if(UTVAR2>=40 && UTVAR2<42)
+printf("2902353922363634671\n");
+if(UTVAR2>=42 && UTVAR2<44)
+printf("1894749856533455560\n");
+if(UTVAR2>=44 && UTVAR2<46)
+printf("-8692178769488561589\n");
+if(UTVAR2>=46 && UTVAR2<48)
+printf("-7868442869422473580\n");
+if(UTVAR2>=48 && UTVAR2<50)
+printf("5042417037527884821\n");
+if(UTVAR2>=50 && UTVAR2<52)
+printf("2066765007124147742\n");
+if(UTVAR2>=52 && UTVAR2<54)
+printf("-2505245403002858084\n");
+if(UTVAR2>=54 && UTVAR2<56)
+printf("-890205415926433796\n");
+if(UTVAR2>=56 && UTVAR2<58)
+printf("1090899068002501067\n");
+if(UTVAR2>=58 && UTVAR2<60)
+printf("-4957986024586151041\n");
+if(UTVAR2>=60 && UTVAR2<62)
+printf("-134626325023704468\n");
+if(UTVAR2>=62 && UTVAR2<64)
+printf("-1458104650474564439\n");
+if(UTVAR2>=64 && UTVAR2<66)
+printf("2456768017354135686\n");
+if(UTVAR2>=66 && UTVAR2<68)
+printf("6716148074374881435\n");
+if(UTVAR2>=68 && UTVAR2<70)
+printf("3935690384021126362\n");
+if(UTVAR2>=70 && UTVAR2<72)
+printf("53511601644055353\n");
+if(UTVAR2>=72 && UTVAR2<74)
+printf("-4737520345394641193\n");
+if(UTVAR2>=74 && UTVAR2<76)
+printf("5163063917482677046\n");
+if(UTVAR2>=76 && UTVAR2<78)
+printf("7410781108551745965\n");
+if(UTVAR2>=78 && UTVAR2<80)
+printf("681887881623631740\n");
+if(UTVAR2>=80 && UTVAR2<82)
+printf("4932773993677623351\n");
+if(UTVAR2>=82 && UTVAR2<84)
+printf("5942865091671910820\n");
+if(UTVAR2>=84 && UTVAR2<86)
+printf("-5947027383014213217\n");
+if(UTVAR2>=86 && UTVAR2<88)
+printf("6996045481644990637\n");
+if(UTVAR2>=88 && UTVAR2<90)
+printf("8074372284506052963\n");
+if(UTVAR2>=90 && UTVAR2<92)
+printf("-5404752390127244329\n");
+if(UTVAR2>=92 && UTVAR2<94)
+printf("-4369264236005261568\n");
+if(UTVAR2>=94 && UTVAR2<96)
+printf("8831423567094981285\n");
+if(UTVAR2>=96 && UTVAR2<98)
+printf("6851123782676616506\n");
+if(UTVAR2>=98 && UTVAR2<100)
+printf("-7382203080000666537\n");
+if(UTVAR2>=100 && UTVAR2<102)
+printf("3102677558732001808\n");
+if(UTVAR2>=102 && UTVAR2<104)
+printf("3149470895052029461\n");
+if(UTVAR2>=104 && UTVAR2<106)
+printf("3427761065785119801\n");
+if(UTVAR2>=106 && UTVAR2<108)
+printf("-792109352239418977\n");
+if(UTVAR2>=108 && UTVAR2<110)
+printf("7379977673218925421\n");
+if(UTVAR2>=110 && UTVAR2<112)
+printf("3519363009152655073\n");
+if(UTVAR2>=112 && UTVAR2<114)
+printf("3120490575854481745\n");
+if(UTVAR2>=114 && UTVAR2<116)
+printf("-7102404588509488591\n");
+if(UTVAR2>=116 && UTVAR2<118)
+printf("-7397385688204786813\n");
+if(UTVAR2>=118 && UTVAR2<120)
+printf("2845537976429940087\n");
+if(UTVAR2>=120 && UTVAR2<122)
+printf("1645597934598470224\n");
+if(UTVAR2>=122 && UTVAR2<124)
+printf("8294190612068076162\n");
+if(UTVAR2>=124 && UTVAR2<126)
+printf("3411508846852481530\n");
+if(UTVAR2>=126 && UTVAR2<128)
+printf("8858603333760788027\n");
+if(UTVAR2>=128 && UTVAR2<130)
+printf("-3186286614179417054\n");
+if(UTVAR2>=130 && UTVAR2<132)
+printf("4420759187888381711\n");
+if(UTVAR2>=132 && UTVAR2<134)
+printf("4484933005422656991\n");
+if(UTVAR2>=134 && UTVAR2<136)
+printf("-8218721336196800001\n");
+if(UTVAR2>=136 && UTVAR2<138)
+printf("3625411310203899324\n");
+if(UTVAR2>=138 && UTVAR2<140)
+printf("8927004154352708518\n");
+if(UTVAR2>=140 && UTVAR2<142)
+printf("-8811311616484789367\n");
+if(UTVAR2>=142 && UTVAR2<144)
+printf("1521732317216216505\n");
+if(UTVAR2>=144 && UTVAR2<146)
+printf("4164027447583587467\n");
+if(UTVAR2>=146 && UTVAR2<148)
+printf("-3197850098274290111\n");
+if(UTVAR2>=148 && UTVAR2<150)
+printf("414974207755509477\n");
+if(UTVAR2>=150 && UTVAR2<152)
+printf("-1585679185072953597\n");
+if(UTVAR2>=152 && UTVAR2<154)
+printf("-3740152426438518839\n");
+if(UTVAR2>=154 && UTVAR2<156)
+printf("-6931892334207729872\n");
+if(UTVAR2>=156 && UTVAR2<158)
+printf("6587530147023121936\n");
+if(UTVAR2>=158 && UTVAR2<160)
+printf("8793258691308721215\n");
+if(UTVAR2>=160 && UTVAR2<162)
+printf("6422945970211621960\n");
+if(UTVAR2>=162 && UTVAR2<164)
+printf("-992989664225041796\n");
+if(UTVAR2>=164 && UTVAR2<166)
+printf("4451569886433431740\n");
+if(UTVAR2>=166 && UTVAR2<168)
+printf("-2187018374874704819\n");
+if(UTVAR2>=168 && UTVAR2<170)
+printf("-7802172085161258993\n");
+if(UTVAR2>=170 && UTVAR2<172)
+printf("-1647572927496226869\n");
+if(UTVAR2>=172 && UTVAR2<174)
+printf("4949007309426608754\n");
+if(UTVAR2>=174 && UTVAR2<176)
+printf("6573456784095772397\n");
+if(UTVAR2>=176 && UTVAR2<178)
+printf("-8775816455788849574\n");
+if(UTVAR2>=178 && UTVAR2<180)
+printf("4035447618427249692\n");
+if(UTVAR2>=180 && UTVAR2<182)
+printf("-2401585371177101935\n");
+if(UTVAR2>=182 && UTVAR2<184)
+printf("-6502264086147815920\n");
+if(UTVAR2>=184 && UTVAR2<186)
+printf("2255320061061560920\n");
+if(UTVAR2>=186 && UTVAR2<188)
+printf("5314646374328401125\n");
+if(UTVAR2>=188 && UTVAR2<190)
+printf("7189544548046374678\n");
+if(UTVAR2>=190 && UTVAR2<192)
+printf("8472377071388565437\n");
+if(UTVAR2>=192 && UTVAR2<194)
+printf("-8640705940078971612\n");
+if(UTVAR2>=194 && UTVAR2<196)
+printf("1506864740086080427\n");
+if(UTVAR2>=196 && UTVAR2<198)
+printf("-3652096216950147753\n");
+if(UTVAR2>=198 && UTVAR2<200)
+printf("4432256939370375733\n");
+if(UTVAR2>=200 && UTVAR2<202)
+printf("1465177297620387096\n");
+if(UTVAR2>=202 && UTVAR2<204)
+printf("-7858714996221661553\n");
+if(UTVAR2>=204 && UTVAR2<206)
+printf("8864356882317621611\n");
+if(UTVAR2>=206 && UTVAR2<208)
+printf("3659666950501349605\n");
+if(UTVAR2>=208 && UTVAR2<210)
+printf("2891562518392674400\n");
+if(UTVAR2>=210 && UTVAR2<212)
+printf("-3684820183216781925\n");
+if(UTVAR2>=212 && UTVAR2<214)
+printf("-2837917719670773168\n");
+if(UTVAR2>=214 && UTVAR2<216)
+printf("-2737718528180673780\n");
+if(UTVAR2>=216 && UTVAR2<218)
+printf("-4080051458560850249\n");
+if(UTVAR2>=218 && UTVAR2<220)
+printf("-3762587266498275336\n");
+if(UTVAR2>=220 && UTVAR2<222)
+printf("-6569367226481324459\n");
+if(UTVAR2>=222 && UTVAR2<224)
+printf("7249336909223198424\n");
+if(UTVAR2>=224 && UTVAR2<226)
+printf("6871071218970854354\n");
+if(UTVAR2>=226 && UTVAR2<228)
+printf("8826572221368629782\n");
+if(UTVAR2>=228 && UTVAR2<230)
+printf("-3214738271893242277\n");
+if(UTVAR2>=230 && UTVAR2<232)
+printf("4393412994030098179\n");
+if(UTVAR2>=232 && UTVAR2<234)
+printf("-4218647556340352527\n");
+if(UTVAR2>=234 && UTVAR2<236)
+printf("3755213669908143755\n");
+if(UTVAR2>=236 && UTVAR2<238)
+printf("8632675056543666032\n");
+if(UTVAR2>=238 && UTVAR2<240)
+printf("-794630484487059887\n");
+if(UTVAR2>=240 && UTVAR2<242)
+printf("-4367993461241862224\n");
+if(UTVAR2>=242 && UTVAR2<244)
+printf("-3255465236824986939\n");
+if(UTVAR2>=244 && UTVAR2<246)
+printf("-5845396493519863853\n");
+if(UTVAR2>=246 && UTVAR2<248)
+printf("8061951952880096764\n");
+if(UTVAR2>=248 && UTVAR2<250)
+printf("5519854307223144367\n");
+if(UTVAR2>=250 && UTVAR2<252)
+printf("3217124636802921917\n");
+if(UTVAR2>=252 && UTVAR2<254)
+printf("-8942222373968045406\n");
+if(UTVAR2>=254 && UTVAR2<256)
+printf("-5259499171478531006\n");
+if(UTVAR3>=0 && UTVAR3<2)
+printf("1306601502743734395\n");
+if(UTVAR3>=2 && UTVAR3<4)
+printf("-9199953487328771276\n");
+if(UTVAR3>=4 && UTVAR3<6)
+printf("-7291444502747366803\n");
+if(UTVAR3>=6 && UTVAR3<8)
+printf("440510725115694591\n");
+if(UTVAR3>=8 && UTVAR3<10)
+printf("-917434757049333544\n");
+if(UTVAR3>=10 && UTVAR3<12)
+printf("124402681402629661\n");
+if(UTVAR3>=12 && UTVAR3<14)
+printf("-4675129893268757917\n");
+if(UTVAR3>=14 && UTVAR3<16)
+printf("-6908151930501248331\n");
+if(UTVAR3>=16 && UTVAR3<18)
+printf("-3314157750019757269\n");
+if(UTVAR3>=18 && UTVAR3<20)
+printf("-501685687122022013\n");
+if(UTVAR3>=20 && UTVAR3<22)
+printf("-6855135647403777602\n");
+if(UTVAR3>=22 && UTVAR3<24)
+printf("5341447709783518134\n");
+if(UTVAR3>=24 && UTVAR3<26)
+printf("8408261351314258688\n");
+if(UTVAR3>=26 && UTVAR3<28)
+printf("6575506473595000420\n");
+if(UTVAR3>=28 && UTVAR3<30)
+printf("-4064584724877796674\n");
+if(UTVAR3>=30 && UTVAR3<32)
+printf("295494289700201353\n");
+if(UTVAR3>=32 && UTVAR3<34)
+printf("-3113445625595404063\n");
+if(UTVAR3>=34 && UTVAR3<36)
+printf("7540894804409832301\n");
+if(UTVAR3>=36 && UTVAR3<38)
+printf("-6625699412744719078\n");
+if(UTVAR3>=38 && UTVAR3<40)
+printf("-2736654391619029712\n");
+if(UTVAR3>=40 && UTVAR3<42)
+printf("-1358154683146318450\n");
+if(UTVAR3>=42 && UTVAR3<44)
+printf("4161952724201746622\n");
+if(UTVAR3>=44 && UTVAR3<46)
+printf("-3409088843412471295\n");
+if(UTVAR3>=46 && UTVAR3<48)
+printf("-4485705345915068416\n");
+if(UTVAR3>=48 && UTVAR3<50)
+printf("2589456631305100146\n");
+if(UTVAR3>=50 && UTVAR3<52)
+printf("1800825782113601536\n");
+if(UTVAR3>=52 && UTVAR3<54)
+printf("-444493149389966859\n");
+if(UTVAR3>=54 && UTVAR3<56)
+printf("-8914454074602698903\n");
+if(UTVAR3>=56 && UTVAR3<58)
+printf("-1864737849943755071\n");
+if(UTVAR3>=58 && UTVAR3<60)
+printf("-6234035783345115196\n");
+if(UTVAR3>=60 && UTVAR3<62)
+printf("-6207227127328973709\n");
+if(UTVAR3>=62 && UTVAR3<64)
+printf("-4502494231037645239\n");
+if(UTVAR3>=64 && UTVAR3<66)
+printf("-2171272235106401391\n");
+if(UTVAR3>=66 && UTVAR3<68)
+printf("-6627108483640346737\n");
+if(UTVAR3>=68 && UTVAR3<70)
+printf("-8080867991253462668\n");
+if(UTVAR3>=70 && UTVAR3<72)
+printf("8825193397773225661\n");
+if(UTVAR3>=72 && UTVAR3<74)
+printf("-6143265351744228793\n");
+if(UTVAR3>=74 && UTVAR3<76)
+printf("1288345559295536113\n");
+if(UTVAR3>=76 && UTVAR3<78)
+printf("3642175395069428169\n");
+if(UTVAR3>=78 && UTVAR3<80)
+printf("-4033904597970447003\n");
+if(UTVAR3>=80 && UTVAR3<82)
+printf("3503344670573356608\n");
+if(UTVAR3>=82 && UTVAR3<84)
+printf("6894293375266257546\n");
+if(UTVAR3>=84 && UTVAR3<86)
+printf("-8436834424385175414\n");
+if(UTVAR3>=86 && UTVAR3<88)
+printf("5603250183205552095\n");
+if(UTVAR3>=88 && UTVAR3<90)
+printf("2046175061217920698\n");
+if(UTVAR3>=90 && UTVAR3<92)
+printf("-652063147567012681\n");
+if(UTVAR3>=92 && UTVAR3<94)
+printf("-6008767884753348242\n");
+if(UTVAR3>=94 && UTVAR3<96)
+printf("-2937384854203556239\n");
+if(UTVAR3>=96 && UTVAR3<98)
+printf("-1592343303045114837\n");
+if(UTVAR3>=98 && UTVAR3<100)
+printf("7392445908219470281\n");
+if(UTVAR3>=100 && UTVAR3<102)
+printf("7996611544960591141\n");
+if(UTVAR3>=102 && UTVAR3<104)
+printf("7962118280518247936\n");
+if(UTVAR3>=104 && UTVAR3<106)
+printf("887304764799762159\n");
+if(UTVAR3>=106 && UTVAR3<108)
+printf("5843211156822718680\n");
+if(UTVAR3>=108 && UTVAR3<110)
+printf("-3996402750144760409\n");
+if(UTVAR3>=110 && UTVAR3<112)
+printf("-6151986245028783855\n");
+if(UTVAR3>=112 && UTVAR3<114)
+printf("6479515442181451495\n");
+if(UTVAR3>=114 && UTVAR3<116)
+printf("-6290097622615142186\n");
+if(UTVAR3>=116 && UTVAR3<118)
+printf("-5228294468657574009\n");
+if(UTVAR3>=118 && UTVAR3<120)
+printf("2240229090713792804\n");
+if(UTVAR3>=120 && UTVAR3<122)
+printf("619445824849741794\n");
+if(UTVAR3>=122 && UTVAR3<124)
+printf("-6615872882490607473\n");
+if(UTVAR3>=124 && UTVAR3<126)
+printf("5712674230311002379\n");
+if(UTVAR3>=126 && UTVAR3<128)
+printf("-5250412272456400208\n");
+if(UTVAR3>=128 && UTVAR3<130)
+printf("3289046829126156457\n");
+if(UTVAR3>=130 && UTVAR3<132)
+printf("-143142779983808565\n");
+if(UTVAR3>=132 && UTVAR3<134)
+printf("-4089793198911184805\n");
+if(UTVAR3>=134 && UTVAR3<136)
+printf("-7318045256681303674\n");
+if(UTVAR3>=136 && UTVAR3<138)
+printf("8345770458005694828\n");
+if(UTVAR3>=138 && UTVAR3<140)
+printf("474675371837116795\n");
+if(UTVAR3>=140 && UTVAR3<142)
+printf("-9049277230069380306\n");
+if(UTVAR3>=142 && UTVAR3<144)
+printf("-727843849892211379\n");
+if(UTVAR3>=144 && UTVAR3<146)
+printf("-4420786038715368278\n");
+if(UTVAR3>=146 && UTVAR3<148)
+printf("6946827615346735220\n");
+if(UTVAR3>=148 && UTVAR3<150)
+printf("6446094122290092787\n");
+if(UTVAR3>=150 && UTVAR3<152)
+printf("4072066304514642806\n");
+if(UTVAR3>=152 && UTVAR3<154)
+printf("-8246124197408401348\n");
+if(UTVAR3>=154 && UTVAR3<156)
+printf("2564372769882213647\n");
+if(UTVAR3>=156 && UTVAR3<158)
+printf("-3450142039435032379\n");
+if(UTVAR3>=158 && UTVAR3<160)
+printf("-7106671640235047815\n");
+if(UTVAR3>=160 && UTVAR3<162)
+printf("227244701726265895\n");
+if(UTVAR3>=162 && UTVAR3<164)
+printf("-7459853303971705590\n");
+if(UTVAR3>=164 && UTVAR3<166)
+printf("3703922916258717252\n");
+if(UTVAR3>=166 && UTVAR3<168)
+printf("6230764418252727461\n");
+if(UTVAR3>=168 && UTVAR3<170)
+printf("5644329459068922813\n");
+if(UTVAR3>=170 && UTVAR3<172)
+printf("1566731928106919790\n");
+if(UTVAR3>=172 && UTVAR3<174)
+printf("2538549432441899379\n");
+if(UTVAR3>=174 && UTVAR3<176)
+printf("7957010480679541764\n");
+if(UTVAR3>=176 && UTVAR3<178)
+printf("2580933780028380890\n");
+if(UTVAR3>=178 && UTVAR3<180)
+printf("7021509884698479769\n");
+if(UTVAR3>=180 && UTVAR3<182)
+printf("-1236296393986039166\n");
+if(UTVAR3>=182 && UTVAR3<184)
+printf("-9085589467680981784\n");
+if(UTVAR3>=184 && UTVAR3<186)
+printf("-342085964252295542\n");
+if(UTVAR3>=186 && UTVAR3<188)
+printf("-6389421647202724639\n");
+if(UTVAR3>=188 && UTVAR3<190)
+printf("3433705220130614394\n");
+if(UTVAR3>=190 && UTVAR3<192)
+printf("-1094321073112053049\n");
+if(UTVAR3>=192 && UTVAR3<194)
+printf("-3898843414243378873\n");
+if(UTVAR3>=194 && UTVAR3<196)
+printf("7052888197000784825\n");
+if(UTVAR3>=196 && UTVAR3<198)
+printf("-6224074692454240483\n");
+if(UTVAR3>=198 && UTVAR3<200)
+printf("-4205628492317921217\n");
+if(UTVAR3>=200 && UTVAR3<202)
+printf("-3616899770812532137\n");
+if(UTVAR3>=202 && UTVAR3<204)
+printf("6961691485819987286\n");
+if(UTVAR3>=204 && UTVAR3<206)
+printf("6853187432973195252\n");
+if(UTVAR3>=206 && UTVAR3<208)
+printf("-6307841210532439958\n");
+if(UTVAR3>=208 && UTVAR3<210)
+printf("602972232556811048\n");
+if(UTVAR3>=210 && UTVAR3<212)
+printf("-7771617610728537976\n");
+if(UTVAR3>=212 && UTVAR3<214)
+printf("-9138509613481616162\n");
+if(UTVAR3>=214 && UTVAR3<216)
+printf("-6655296085394771107\n");
+if(UTVAR3>=216 && UTVAR3<218)
+printf("3542021646114611737\n");
+if(UTVAR3>=218 && UTVAR3<220)
+printf("6065028814432287847\n");
+if(UTVAR3>=220 && UTVAR3<222)
+printf("-9087378143371858994\n");
+if(UTVAR3>=222 && UTVAR3<224)
+printf("2476747411165037400\n");
+if(UTVAR3>=224 && UTVAR3<226)
+printf("-7898692031791748364\n");
+if(UTVAR3>=226 && UTVAR3<228)
+printf("8723182329777366270\n");
+if(UTVAR3>=228 && UTVAR3<230)
+printf("-3160933164911660675\n");
+if(UTVAR3>=230 && UTVAR3<232)
+printf("-1349718307409218297\n");
+if(UTVAR3>=232 && UTVAR3<234)
+printf("381498048494550304\n");
+if(UTVAR3>=234 && UTVAR3<236)
+printf("-2028069632956186963\n");
+if(UTVAR3>=236 && UTVAR3<238)
+printf("-7025879610979256738\n");
+if(UTVAR3>=238 && UTVAR3<240)
+printf("7104355191469050754\n");
+if(UTVAR3>=240 && UTVAR3<242)
+printf("-5240387219259670492\n");
+if(UTVAR3>=242 && UTVAR3<244)
+printf("-2554566207262998775\n");
+if(UTVAR3>=244 && UTVAR3<246)
+printf("-8304526290720862011\n");
+if(UTVAR3>=246 && UTVAR3<248)
+printf("-310910920068432514\n");
+if(UTVAR3>=248 && UTVAR3<250)
+printf("-4494067097650841216\n");
+if(UTVAR3>=250 && UTVAR3<252)
+printf("-704794562782728267\n");
+if(UTVAR3>=252 && UTVAR3<254)
+printf("-2438950521263690406\n");
+if(UTVAR3>=254 && UTVAR3<256)
+printf("1220071175237100840\n");
+if(UTVAR4>=0 && UTVAR4<2)
+printf("-2505695388731853015\n");
+if(UTVAR4>=2 && UTVAR4<4)
+printf("5464863460307402673\n");
+if(UTVAR4>=4 && UTVAR4<6)
+printf("-4350632068989589061\n");
+if(UTVAR4>=6 && UTVAR4<8)
+printf("-3498455314998051857\n");
+if(UTVAR4>=8 && UTVAR4<10)
+printf("5576018173342808093\n");
+if(UTVAR4>=10 && UTVAR4<12)
+printf("1493514505218498275\n");
+if(UTVAR4>=12 && UTVAR4<14)
+printf("6859076367972006632\n");
+if(UTVAR4>=14 && UTVAR4<16)
+printf("2340721060505751858\n");
+if(UTVAR4>=16 && UTVAR4<18)
+printf("-4099340739035119545\n");
+if(UTVAR4>=18 && UTVAR4<20)
+printf("8188461185312533606\n");
+if(UTVAR4>=20 && UTVAR4<22)
+printf("-3135844098409318583\n");
+if(UTVAR4>=22 && UTVAR4<24)
+printf("5944080540804249002\n");
+if(UTVAR4>=24 && UTVAR4<26)
+printf("816097576537792998\n");
+if(UTVAR4>=26 && UTVAR4<28)
+printf("1936425905053022219\n");
+if(UTVAR4>=28 && UTVAR4<30)
+printf("-463050982910648110\n");
+if(UTVAR4>=30 && UTVAR4<32)
+printf("-455233137320824202\n");
+if(UTVAR4>=32 && UTVAR4<34)
+printf("1225435511552497599\n");
+if(UTVAR4>=34 && UTVAR4<36)
+printf("8984766218436665798\n");
+if(UTVAR4>=36 && UTVAR4<38)
+printf("-7506964987023137715\n");
+if(UTVAR4>=38 && UTVAR4<40)
+printf("-334432981624185708\n");
+if(UTVAR4>=40 && UTVAR4<42)
+printf("-6102528907248701689\n");
+if(UTVAR4>=42 && UTVAR4<44)
+printf("-1165374974650729540\n");
+if(UTVAR4>=44 && UTVAR4<46)
+printf("-1472907449437671255\n");
+if(UTVAR4>=46 && UTVAR4<48)
+printf("2836995783956943059\n");
+if(UTVAR4>=48 && UTVAR4<50)
+printf("-6399445697166793238\n");
+if(UTVAR4>=50 && UTVAR4<52)
+printf("-563557320332551980\n");
+if(UTVAR4>=52 && UTVAR4<54)
+printf("-3791705349098317657\n");
+if(UTVAR4>=54 && UTVAR4<56)
+printf("-5893439324394107277\n");
+if(UTVAR4>=56 && UTVAR4<58)
+printf("-5852397274335874863\n");
+if(UTVAR4>=58 && UTVAR4<60)
+printf("8475397984756748611\n");
+if(UTVAR4>=60 && UTVAR4<62)
+printf("-1481685034320996682\n");
+if(UTVAR4>=62 && UTVAR4<64)
+printf("3064607671682136228\n");
+if(UTVAR4>=64 && UTVAR4<66)
+printf("6342597081312708288\n");
+if(UTVAR4>=66 && UTVAR4<68)
+printf("-7811200351694953094\n");
+if(UTVAR4>=68 && UTVAR4<70)
+printf("1367771366554068011\n");
+if(UTVAR4>=70 && UTVAR4<72)
+printf("856024120799609477\n");
+if(UTVAR4>=72 && UTVAR4<74)
+printf("-2310796250068398472\n");
+if(UTVAR4>=74 && UTVAR4<76)
+printf("-8852719371163836441\n");
+if(UTVAR4>=76 && UTVAR4<78)
+printf("5514407366104850114\n");
+if(UTVAR4>=78 && UTVAR4<80)
+printf("-3347679953154086338\n");
+if(UTVAR4>=80 && UTVAR4<82)
+printf("1038768512581200909\n");
+if(UTVAR4>=82 && UTVAR4<84)
+printf("5495406997447262288\n");
+if(UTVAR4>=84 && UTVAR4<86)
+printf("-6112617672022238675\n");
+if(UTVAR4>=86 && UTVAR4<88)
+printf("7609874753504186143\n");
+if(UTVAR4>=88 && UTVAR4<90)
+printf("-7078427375399951727\n");
+if(UTVAR4>=90 && UTVAR4<92)
+printf("4493022276538863835\n");
+if(UTVAR4>=92 && UTVAR4<94)
+printf("4082219069664144560\n");
+if(UTVAR4>=94 && UTVAR4<96)
+printf("-2684050656396369137\n");
+if(UTVAR4>=96 && UTVAR4<98)
+printf("-8506379873449071157\n");
+if(UTVAR4>=98 && UTVAR4<100)
+printf("-1519303008949183248\n");
+if(UTVAR4>=100 && UTVAR4<102)
+printf("652343768556692080\n");
+if(UTVAR4>=102 && UTVAR4<104)
+printf("2374921587094107378\n");
+if(UTVAR4>=104 && UTVAR4<106)
+printf("-1912226075354219139\n");
+if(UTVAR4>=106 && UTVAR4<108)
+printf("2673556748419222548\n");
+if(UTVAR4>=108 && UTVAR4<110)
+printf("-5798411538665434683\n");
+if(UTVAR4>=110 && UTVAR4<112)
+printf("-2496854493997252335\n");
+if(UTVAR4>=112 && UTVAR4<114)
+printf("-2833783923951087973\n");
+if(UTVAR4>=114 && UTVAR4<116)
+printf("7707616182697130738\n");
+if(UTVAR4>=116 && UTVAR4<118)
+printf("-3965346563872139081\n");
+if(UTVAR4>=118 && UTVAR4<120)
+printf("-4141076348164385773\n");
+if(UTVAR4>=120 && UTVAR4<122)
+printf("-4016679501237749239\n");
+if(UTVAR4>=122 && UTVAR4<124)
+printf("-1355682400755508298\n");
+if(UTVAR4>=124 && UTVAR4<126)
+printf("-741858144572506278\n");
+if(UTVAR4>=126 && UTVAR4<128)
+printf("-7144249445267293521\n");
+if(UTVAR4>=128 && UTVAR4<130)
+printf("3328541143923881998\n");
+if(UTVAR4>=130 && UTVAR4<132)
+printf("8183876863259496857\n");
+if(UTVAR4>=132 && UTVAR4<134)
+printf("8458396374319236382\n");
+if(UTVAR4>=134 && UTVAR4<136)
+printf("-6209932552499829234\n");
+if(UTVAR4>=136 && UTVAR4<138)
+printf("6002377768966860899\n");
+if(UTVAR4>=138 && UTVAR4<140)
+printf("-6499507165672469839\n");
+if(UTVAR4>=140 && UTVAR4<142)
+printf("-1717875694542006540\n");
+if(UTVAR4>=142 && UTVAR4<144)
+printf("3304601288812580901\n");
+if(UTVAR4>=144 && UTVAR4<146)
+printf("-8079116162337927817\n");
+if(UTVAR4>=146 && UTVAR4<148)
+printf("-6158997996958716420\n");
+if(UTVAR4>=148 && UTVAR4<150)
+printf("-6397267122854058764\n");
+if(UTVAR4>=150 && UTVAR4<152)
+printf("-1301326220454779838\n");
+if(UTVAR4>=152 && UTVAR4<154)
+printf("-1424965205142446719\n");
+if(UTVAR4>=154 && UTVAR4<156)
+printf("5887823499392062175\n");
+if(UTVAR4>=156 && UTVAR4<158)
+printf("-4184516694248679018\n");
+if(UTVAR4>=158 && UTVAR4<160)
+printf("3129900411455509666\n");
+if(UTVAR4>=160 && UTVAR4<162)
+printf("-6799229357120334394\n");
+if(UTVAR4>=162 && UTVAR4<164)
+printf("3759940089680795918\n");
+if(UTVAR4>=164 && UTVAR4<166)
+printf("5826326348072636190\n");
+if(UTVAR4>=166 && UTVAR4<168)
+printf("-7235980272447165761\n");
+if(UTVAR4>=168 && UTVAR4<170)
+printf("-7933347386604809474\n");
+if(UTVAR4>=170 && UTVAR4<172)
+printf("7615345600395124891\n");
+if(UTVAR4>=172 && UTVAR4<174)
+printf("-5931807259419574154\n");
+if(UTVAR4>=174 && UTVAR4<176)
+printf("-63874149042592607\n");
+if(UTVAR4>=176 && UTVAR4<178)
+printf("1166018528536388569\n");
+if(UTVAR4>=178 && UTVAR4<180)
+printf("-5753064762045533286\n");
+if(UTVAR4>=180 && UTVAR4<182)
+printf("8960670745471530780\n");
+if(UTVAR4>=182 && UTVAR4<184)
+printf("-1646563449353731007\n");
+if(UTVAR4>=184 && UTVAR4<186)
+printf("7754064640840744549\n");
+if(UTVAR4>=186 && UTVAR4<188)
+printf("-8169543785948595172\n");
+if(UTVAR4>=188 && UTVAR4<190)
+printf("-8056693795796031734\n");
+if(UTVAR4>=190 && UTVAR4<192)
+printf("8495642148825275854\n");
+if(UTVAR4>=192 && UTVAR4<194)
+printf("8535947734413755505\n");
+if(UTVAR4>=194 && UTVAR4<196)
+printf("-6523191427982709301\n");
+if(UTVAR4>=196 && UTVAR4<198)
+printf("-3266824847738355212\n");
+if(UTVAR4>=198 && UTVAR4<200)
+printf("-5968053890396139081\n");
+if(UTVAR4>=200 && UTVAR4<202)
+printf("1651958179211766448\n");
+if(UTVAR4>=202 && UTVAR4<204)
+printf("-1182918560355044221\n");
+if(UTVAR4>=204 && UTVAR4<206)
+printf("-2120851364308079983\n");
+if(UTVAR4>=206 && UTVAR4<208)
+printf("3846965808472564686\n");
+if(UTVAR4>=208 && UTVAR4<210)
+printf("-3955587363996017261\n");
+if(UTVAR4>=210 && UTVAR4<212)
+printf("-645414325803682698\n");
+if(UTVAR4>=212 && UTVAR4<214)
+printf("3151584305297104990\n");
+if(UTVAR4>=214 && UTVAR4<216)
+printf("-4555736373632151084\n");
+if(UTVAR4>=216 && UTVAR4<218)
+printf("8181021853142894223\n");
+if(UTVAR4>=218 && UTVAR4<220)
+printf("8457915228146760214\n");
+if(UTVAR4>=220 && UTVAR4<222)
+printf("2331101011917756576\n");
+if(UTVAR4>=222 && UTVAR4<224)
+printf("-2893656827252484693\n");
+if(UTVAR4>=224 && UTVAR4<226)
+printf("4772155209301750819\n");
+if(UTVAR4>=226 && UTVAR4<228)
+printf("-7550563367602013302\n");
+if(UTVAR4>=228 && UTVAR4<230)
+printf("-5287041203722915231\n");
+if(UTVAR4>=230 && UTVAR4<232)
+printf("7114443961996072950\n");
+if(UTVAR4>=232 && UTVAR4<234)
+printf("-3242156909959118356\n");
+if(UTVAR4>=234 && UTVAR4<236)
+printf("1116182194730046652\n");
+if(UTVAR4>=236 && UTVAR4<238)
+printf("-2864995373530547180\n");
+if(UTVAR4>=238 && UTVAR4<240)
+printf("-1836213744658320908\n");
+if(UTVAR4>=240 && UTVAR4<242)
+printf("-2045347760390740227\n");
+if(UTVAR4>=242 && UTVAR4<244)
+printf("4440681807367685488\n");
+if(UTVAR4>=244 && UTVAR4<246)
+printf("-4252357247971165584\n");
+if(UTVAR4>=246 && UTVAR4<248)
+printf("-3523397778121567268\n");
+if(UTVAR4>=248 && UTVAR4<250)
+printf("2586236196602206400\n");
+if(UTVAR4>=250 && UTVAR4<252)
+printf("-4026450744793571528\n");
+if(UTVAR4>=252 && UTVAR4<254)
+printf("-2369366528698623277\n");
+if(UTVAR4>=254 && UTVAR4<256)
+printf("-2063797780517358436\n");
+
+fputs("@ELSE@-@CONDITION2:VAR1@##", fp);
+}
+
+    //// section of insertion
+    if (fp != NULL) {
+        fputs("\n", fp);
+        fclose(fp);
+    }
+}
+
+//// section of main function
